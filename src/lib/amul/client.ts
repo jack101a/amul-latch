@@ -12,7 +12,7 @@ import {
   productImageUrl,
   productPageUrl,
 } from "./types";
-import { lookupSubstore } from "./substores";
+import { lookupSubstore, refreshLiveSubstores } from "./substores";
 
 const BROWSE = `${AMUL_ORIGIN}/en/browse/protein`;
 
@@ -194,6 +194,7 @@ export class AmulClient {
     }
 
     const rawSlug = String(record.substore || "").toLowerCase().trim();
+    await refreshLiveSubstores().catch(() => {});
     const mapped = lookupSubstore(rawSlug);
 
     await this.requestJson(`${AMUL_ORIGIN}/entity/ms.settings/_/setPreferences`, {

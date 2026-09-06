@@ -1,9 +1,21 @@
 /**
- * Official StoreHippo / Amul Substore ID mapping.
+ * Official StoreHippo / Amul Substore ID mapping & dynamic resolver.
  * Amul requires the 24-character hexadecimal MongoDB ObjectId for the `substore` parameter,
  * NOT the alias slug (e.g. "66505ff06510ee3d5903fd42", not "gujarat").
+ *
+ * This module dynamically pulls the live substore registry directly from Amul's CDN
+ * (`/ms/store/amul/cacheEntities/auto/EN/storedata.js`), while retaining a reliable
+ * snapshot fallback.
  */
-export const SUBSTORE_MAP: Record<string, { id: string; name: string }> = {
+
+import { AMUL_ORIGIN } from "./types";
+
+export interface SubstoreEntry {
+  id: string;
+  name: string;
+}
+
+export const SUBSTORE_MAP: Record<string, SubstoreEntry> = {
   testing: { id: "6707977fec74db0032682974", name: "Testing" },
   goa: { id: "66506005147d6c73c1110115", name: "Goa" },
   telangana: { id: "66506004aa64743ceefbed25", name: "Telangana" },
@@ -47,19 +59,97 @@ export const SUBSTORE_MAP: Record<string, { id: string; name: string }> = {
   "daman-and-diu": { id: "66505ff024e61363e088c306", name: "Daman & DIU" },
 };
 
+// Dynamic in-memory registry populated live from Amul's CDN
+const liveRegistry = new Map<string, SubstoreEntry>();
+let lastFetchedAt = 0;
+const CACHE_TTL_MS = 6 * 60 * 60 * 1000; // 6 hours
+
 /**
- * Resolves an Amul substore slug or alias to its official 24-hex MongoDB ObjectId.
+ * Dynamically queries Amul's public storedata CDN file to pull any new or updated substores.
  */
-export function lookupSubstore(aliasOrSlug: string): { id: string; name: string } | null {
+export async function refreshLiveSubstores(): Promise<number> {
+  const now = Date.now();
+  if (liveRegistry.size > 0 && now - lastFetchedAt < CACHE_TTL_MS) {
+    return liveRegistry.size;
+  }
+
+  try {
+    const res = await fetch(`${AMUL_ORIGIN}/ms/store/amul/cacheEntities/auto/EN/storedata.js`, {
+      headers: {
+        "User-Agent":
+          "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
+      },
+    });
+    if (!res.ok) return liveRegistry.size;
+
+    const text = await res.text();
+    const match = text.match(/"ms\.substores":\s*(\[\{.*?\}\])\s*(?=,"ms\.|\})/);
+    if (!match) return liveRegistry.size;
+
+    const rawList = JSON.parse(match[1]) as Array<{
+      _id?: string;
+      alias?: string;
+      name?: string;
+    }>;
+
+    for (const item of rawList) {
+      if (!item._id) continue;
+      const entry: SubstoreEntry = {
+        id: item._id,
+        name: item.name || item.alias || item._id,
+      };
+      if (item.alias) {
+        liveRegistry.set(item.alias.toLowerCase().trim(), entry);
+      }
+      if (item.name) {
+        liveRegistry.set(item.name.toLowerCase().trim(), entry);
+      }
+      liveRegistry.set(item._id.toLowerCase().trim(), entry);
+    }
+
+    lastFetchedAt = now;
+  } catch {
+    // Network or parse issue; gracefully continue with snapshot fallback
+  }
+
+  return liveRegistry.size;
+}
+
+/**
+ * Resolves an Amul substore slug, name, or ID to its official 24-hex MongoDB ObjectId.
+ * Handles:
+ * 1. 24-character hexadecimal ObjectIds directly (passthrough)
+ * 2. Live dynamic registry fetched from Amul CDN
+ * 3. Static snapshot fallback
+ * 4. Fuzzy / prefix matching
+ */
+export function lookupSubstore(aliasOrSlug: string): SubstoreEntry | null {
   if (!aliasOrSlug) return null;
   const clean = aliasOrSlug.toLowerCase().trim();
 
-  // Direct match
+  // 1. Direct 24-hex MongoDB ObjectId passthrough
+  if (/^[a-f0-9]{24}$/i.test(clean)) {
+    return { id: clean, name: clean };
+  }
+
+  // 2. Check live dynamic registry
+  if (liveRegistry.has(clean)) {
+    return liveRegistry.get(clean)!;
+  }
+
+  // 3. Check built-in snapshot map
   if (SUBSTORE_MAP[clean]) {
     return SUBSTORE_MAP[clean];
   }
 
-  // Normalized fuzzy / prefix matching
+  // 4. Normalized fuzzy / prefix matching across live registry
+  for (const [key, val] of liveRegistry.entries()) {
+    if (key === clean || clean.startsWith(key) || key.startsWith(clean)) {
+      return val;
+    }
+  }
+
+  // 5. Normalized fuzzy / prefix matching across snapshot map
   for (const [key, val] of Object.entries(SUBSTORE_MAP)) {
     if (key === clean || clean.startsWith(key) || key.startsWith(clean)) {
       return val;
@@ -68,3 +158,4 @@ export function lookupSubstore(aliasOrSlug: string): { id: string; name: string 
 
   return null;
 }
+
