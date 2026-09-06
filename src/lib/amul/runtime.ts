@@ -368,7 +368,7 @@ async function poll() {
   if (restocks.length) {
     for (const live of restocks) {
       pushEvent("restock", "ok", "Restock detected", live.name, live.sku);
-      notify(`RESTCK: ${live.name} is available for ${s.config.pincode}.`);
+      notify(`RESTOCK: ${live.name} is available for ${s.config.pincode}.`);
       const trackedItem = tracked.find((t) => t.sku === live.sku);
       if (trackedItem && s.config.autoOrder) {
         await performCheckout(trackedItem, "restock");
