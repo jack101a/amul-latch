@@ -23,7 +23,7 @@ export function ProductCard({
 }: Props) {
   const selected = Boolean(tracked);
   const isBestValue =
-    typeof product.costPerGramProtein === "number" && product.costPerGramProtein <= 1.8;
+    typeof product.costPerGramProtein === "number" && product.costPerGramProtein <= 2.2;
 
   return (
     <article

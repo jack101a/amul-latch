@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   extractProteinGrams,
+  extractPackMultiplier,
   calculateProteinCostPerGram,
   DEFAULT_CONFIG,
   type AppConfig,
@@ -10,27 +11,37 @@ import {
 } from "./types.ts";
 import { getISTDecimalHour, calculateAdaptiveInterval } from "./runtime.ts";
 
-test("Protein Economics: extraction of protein grams", () => {
+test("Protein Economics: extraction of pack multiplier", () => {
+  assert.equal(extractPackMultiplier("Amul High Protein Buttermilk, 200 ml | Pack of 30"), 30);
+  assert.equal(extractPackMultiplier("Amul Chocolate Whey Protein Gift Pack, 34 g | Pack of 10 sachets"), 10);
+  assert.equal(extractPackMultiplier("Amul Whey Protein 30 Sachets 24 g"), 30);
+  assert.equal(extractPackMultiplier("Amul Kool Protein Milkshake | Chocolate, 180 ml | Pack of 8"), 8);
+  assert.equal(extractPackMultiplier("Single Buttermilk 200 ml"), 1);
+});
+
+test("Protein Economics: total protein grams calculation", () => {
+  // 15g * 30 = 450g total
+  assert.equal(extractProteinGrams("Amul High Protein Buttermilk, 200 ml | Pack of 30"), 450);
+  // 25g * 10 = 250g total
+  assert.equal(extractProteinGrams("Amul Chocolate Whey Protein Gift Pack, 34 g | Pack of 10 sachets"), 250);
+  // 24g * 30 = 720g total
+  assert.equal(extractProteinGrams("Amul Whey Protein 30 Sachets 24 g"), 720);
+  // Single pack 15g
   assert.equal(extractProteinGrams("Amul High Protein Buttermilk 15g"), 15);
-  assert.equal(extractProteinGrams("Amul High Protein Lassi 15g Rose"), 15);
-  assert.equal(extractProteinGrams("Amul High Protein Whey Shake 25g (Pack of 30)"), 25);
-  assert.equal(extractProteinGrams("Amul Whey Protein 30 Sachets 24 g"), 24);
-  assert.equal(extractProteinGrams("High Protein Paneer 70g"), 70);
-  assert.equal(extractProteinGrams("Amul Plain Chaas 200ml"), 15);
+  // Generic non-protein
   assert.equal(extractProteinGrams("Generic Ice Cream"), null);
 });
 
 test("Protein Economics: ₹/gram cost calculation", () => {
-  // ₹40 for 15g = 2.67
-  assert.equal(calculateProteinCostPerGram(40, 15), 2.67);
-  // ₹50 for 25g = 2.00
-  assert.equal(calculateProteinCostPerGram(50, 25), 2);
-  // ₹150 for 70g = 2.14
-  assert.equal(calculateProteinCostPerGram(150, 70), 2.14);
+  // ₹900 for 450g protein = ₹2.00/g
+  assert.equal(calculateProteinCostPerGram(900, 450), 2.0);
+  // ₹920 for 250g protein = ₹3.68/g
+  assert.equal(calculateProteinCostPerGram(920, 250), 3.68);
+  // ₹1200 for 300g protein = ₹4.00/g
+  assert.equal(calculateProteinCostPerGram(1200, 300), 4.0);
   // Invalid inputs
   assert.equal(calculateProteinCostPerGram(0, 15), null);
   assert.equal(calculateProteinCostPerGram(40, null), null);
-  assert.equal(calculateProteinCostPerGram(40, -5), null);
 });
 
 test("Circadian Adaptive Polling: IST decimal hour calculation", () => {

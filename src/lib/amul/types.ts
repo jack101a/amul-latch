@@ -202,68 +202,111 @@ export function maskSecret(value: string): string {
   return `${v.slice(0, 3)}…${v.slice(-3)}`;
 }
 
+export function extractPackMultiplier(name: string, alias?: string): number {
+  const text = `${name || ""} ${alias || ""}`.toLowerCase();
+
+  // 1. "pack of 30", "pack of 10", "pack of 8", "pack of 32"
+  const packOfMatch = text.match(/\bpack\s*of\s*(\d{1,3})\b/);
+  if (packOfMatch) {
+    const count = parseInt(packOfMatch[1], 10);
+    if (count > 0 && count <= 200) return count;
+  }
+
+  // 2. "30 sachets", "10 sachets", "30 packs", "8 packs", "30 bottles", "30 cans"
+  const unitsMatch = text.match(/\b(\d{1,3})\s*(?:sachets?|packs?|bottles?|tetra\s*packs?|cans?|units?)\b/);
+  if (unitsMatch) {
+    const count = parseInt(unitsMatch[1], 10);
+    if (count > 0 && count <= 200) return count;
+  }
+
+  // 3. Multiplier format e.g. "30 x 200ml" or "10 x 34g"
+  const multMatch = text.match(/\b(\d{1,2})\s*x\s*\d+/);
+  if (multMatch) {
+    const count = parseInt(multMatch[1], 10);
+    if (count > 0 && count <= 200) return count;
+  }
+
+  return 1;
+}
+
 export function extractProteinGrams(name: string, alias?: string): number | null {
   const text = `${name || ""} ${alias || ""}`.toLowerCase();
+  let baseGrams: number | null = null;
 
   // 1. Explicit "<num>g protein" or "<num> g of protein" (e.g. "15g Protein", "25 g Protein", "35g of protein")
   const explicitMatch = text.match(/(\d+(?:\.\d+)?)\s*(?:g|gm|gms|grams?)\s*(?:of\s*)?protein\b/);
   if (explicitMatch) {
     const val = parseFloat(explicitMatch[1]);
-    if (Number.isFinite(val) && val > 0) return val;
+    if (Number.isFinite(val) && val > 0) baseGrams = val;
   }
 
   // 2. Slug style in aliases (e.g. "25g-protein", "15g-protein", "protein-25g")
-  const slugMatch =
-    text.match(/(?:^|[-_])(\d+(?:\.\d+)?)-?g-?protein\b/) ||
-    text.match(/\bprotein-?(\d+(?:\.\d+)?)-?g(?:[-_]|$)/);
-  if (slugMatch) {
-    const val = parseFloat(slugMatch[1]);
-    if (Number.isFinite(val) && val > 0) return val;
+  if (baseGrams === null) {
+    const slugMatch =
+      text.match(/(?:^|[-_])(\d+(?:\.\d+)?)-?g-?protein\b/) ||
+      text.match(/\bprotein-?(\d+(?:\.\d+)?)-?g(?:[-_]|$)/);
+    if (slugMatch) {
+      const val = parseFloat(slugMatch[1]);
+      if (Number.isFinite(val) && val > 0) baseGrams = val;
+    }
   }
 
   // 3. "protein <num>g" (e.g. "Protein: 25g" or "protein - 15g")
-  const prefixMatch = text.match(
-    /protein\s*(?:content|contains)?\s*[:\-\s]\s*(\d+(?:\.\d+)?)\s*(?:g|gm|gms|grams?)\b/,
-  );
-  if (prefixMatch) {
-    const val = parseFloat(prefixMatch[1]);
-    if (Number.isFinite(val) && val > 0) return val;
+  if (baseGrams === null) {
+    const prefixMatch = text.match(
+      /protein\s*(?:content|contains)?\s*[:\-\s]\s*(\d+(?:\.\d+)?)\s*(?:g|gm|gms|grams?)\b/,
+    );
+    if (prefixMatch) {
+      const val = parseFloat(prefixMatch[1]);
+      if (Number.isFinite(val) && val > 0) baseGrams = val;
+    }
   }
 
   // 4. Parentheses with gram e.g. "(15g)" or "(25 g)" or "(35g)" or "(70 g)"
-  const parenMatch = text.match(/\(\s*(\d+(?:\.\d+)?)\s*(?:g|gm|gms|grams?)\s*\)/);
-  if (parenMatch) {
-    const val = parseFloat(parenMatch[1]);
-    if (Number.isFinite(val) && val > 0 && val <= 100) return val;
+  if (baseGrams === null) {
+    const parenMatch = text.match(/\(\s*(\d+(?:\.\d+)?)\s*(?:g|gm|gms|grams?)\s*\)/);
+    if (parenMatch) {
+      const val = parseFloat(parenMatch[1]);
+      if (Number.isFinite(val) && val > 0 && val <= 100) baseGrams = val;
+    }
   }
 
   // 5. Explicit standalone protein gram patterns e.g. " 15g", " 24 g", " 25g", " 35g", " 70 g"
-  const specificMatch = text.match(/\b(15|24|25|30|35|40|50|60|70|75|80)\s*(?:g|gm|gms|grams?)\b/);
-  if (specificMatch) {
-    const val = parseFloat(specificMatch[1]);
-    if (Number.isFinite(val) && val > 0) return val;
+  if (baseGrams === null) {
+    const specificMatch = text.match(/\b(15|24|25|30|35|40|50|60|70|75|80)\s*(?:g|gm|gms|grams?)\b/);
+    if (specificMatch) {
+      const val = parseFloat(specificMatch[1]);
+      if (Number.isFinite(val) && val > 0) baseGrams = val;
+    }
   }
 
-  // 6. General number with "g" if 10 <= val <= 85 (excluding pack weights like 200g, 250ml, etc.)
-  const genericGMatch = text.match(/\b(\d{1,2}(?:\.\d+)?)\s*(?:g|gm|gms|grams?)\b/);
-  if (genericGMatch) {
-    const val = parseFloat(genericGMatch[1]);
-    if (Number.isFinite(val) && val >= 10 && val <= 85) return val;
+  // 6. Whey sachet handling:
+  // Amul Whey Protein sachets are 32g-34g gross powder weight containing 25g protein.
+  if (baseGrams === null && text.includes("sachet") && (text.includes("whey") || text.includes("32") || text.includes("34"))) {
+    baseGrams = 25;
   }
 
-  // 7. Whey sachet fallback:
-  // Amul Whey Protein sachets are typically 32g gross powder weight containing 25g protein.
-  if (text.includes("sachet") && (text.includes("whey") || text.includes("32"))) {
-    return 25;
+  // 7. General number with "g" if 10 <= val <= 85 (excluding pack weights like 200g, 250ml, etc.)
+  if (baseGrams === null) {
+    const genericGMatch = text.match(/\b(\d{1,2}(?:\.\d+)?)\s*(?:g|gm|gms|grams?)\b/);
+    if (genericGMatch) {
+      const val = parseFloat(genericGMatch[1]);
+      if (Number.isFinite(val) && val >= 10 && val <= 85) baseGrams = val;
+    }
   }
 
   // 8. Product fallbacks for standard Amul offerings
-  if (text.includes("lassi")) return 15;
-  if (text.includes("buttermilk") || text.includes("chaas") || text.includes("chach")) return 15;
-  if (text.includes("paneer")) return 50;
-  if (text.includes("whey")) return 25;
+  if (baseGrams === null) {
+    if (text.includes("lassi")) baseGrams = 15;
+    else if (text.includes("buttermilk") || text.includes("chaas") || text.includes("chach")) baseGrams = 15;
+    else if (text.includes("paneer")) baseGrams = 50;
+    else if (text.includes("whey")) baseGrams = 25;
+  }
 
-  return null;
+  if (baseGrams === null) return null;
+
+  const multiplier = extractPackMultiplier(name, alias);
+  return Number((baseGrams * multiplier).toFixed(1));
 }
 
 export function calculateProteinCostPerGram(
