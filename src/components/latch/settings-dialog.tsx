@@ -1065,6 +1065,12 @@ export function SettingsDialog({
             {telegramBusy ? <LoaderCircle className="h-4 w-4 animate-spin mr-2" /> : null}
             Send test message
           </Button>
+          <div className="rounded-md border border-border/60 bg-muted/30 p-2.5 text-[11px] text-muted-foreground leading-relaxed">
+            <span className="font-semibold text-foreground">Interactive Bot Commands:</span> Send{" "}
+            <span className="font-mono text-stock font-medium">/status</span>,{" "}
+            <span className="font-mono text-stock font-medium">/stock</span>,{" "}
+            <span className="font-mono text-stock font-medium">/pin 400068</span>, or tap instant order buttons directly from Telegram.
+          </div>
         </section>
 
         <Separator />

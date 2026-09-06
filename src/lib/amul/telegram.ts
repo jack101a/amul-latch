@@ -77,11 +77,44 @@ export async function autoDetectTelegramChatId(botToken: string): Promise<Detect
   }
 }
 
+export interface TelegramInlineButton {
+  text: string;
+  url?: string;
+  callback_data?: string;
+}
+
+export interface TelegramReplyMarkup {
+  inline_keyboard?: TelegramInlineButton[][];
+}
+
+export interface TelegramUpdate {
+  update_id: number;
+  message?: {
+    message_id: number;
+    from?: { id: number; username?: string; first_name?: string };
+    chat: { id: number | string; username?: string; first_name?: string };
+    date: number;
+    text?: string;
+  };
+  callback_query?: {
+    id: string;
+    from: { id: number; username?: string; first_name?: string };
+    message?: {
+      message_id: number;
+      chat: { id: number | string };
+      text?: string;
+    };
+    data?: string;
+  };
+}
+
 export async function sendTelegram(input: {
   botToken: string;
   chatId?: string;
   text: string;
-}): Promise<{ ok: boolean; chatId?: string; error?: string }> {
+  replyMarkup?: TelegramReplyMarkup;
+  parseMode?: "HTML" | "Markdown";
+}): Promise<{ ok: boolean; chatId?: string; messageId?: number; error?: string }> {
   const token = input.botToken.trim();
   let chatId = input.chatId?.trim() || "";
 
@@ -112,23 +145,108 @@ export async function sendTelegram(input: {
 
   const url = `${TELEGRAM_ORIGIN}/bot${token}/sendMessage`;
   try {
+    const payload: Record<string, unknown> = {
+      chat_id: chatId,
+      text: input.text,
+      disable_web_page_preview: true,
+    };
+    if (input.parseMode) {
+      payload.parse_mode = input.parseMode;
+    }
+    if (input.replyMarkup) {
+      payload.reply_markup = input.replyMarkup;
+    }
+
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(12000),
+    });
+    const json = (await res.json()) as {
+      ok?: boolean;
+      description?: string;
+      result?: { message_id?: number };
+    };
+    if (!res.ok || !json.ok) {
+      return { ok: false, error: json.description || `Telegram HTTP ${res.status}` };
+    }
+    return { ok: true, chatId, messageId: json.result?.message_id };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Telegram failed" };
+  }
+}
+
+export async function answerCallbackQuery(input: {
+  botToken: string;
+  callbackQueryId: string;
+  text?: string;
+  showAlert?: boolean;
+}): Promise<{ ok: boolean; error?: string }> {
+  const token = input.botToken.trim();
+  if (!token) return { ok: false, error: "Bot token missing" };
+
+  const url = `${TELEGRAM_ORIGIN}/bot${token}/answerCallbackQuery`;
+  try {
     const res = await fetch(url, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
-        chat_id: chatId,
+        callback_query_id: input.callbackQueryId,
         text: input.text,
-        disable_web_page_preview: true,
+        show_alert: input.showAlert ?? false,
       }),
-      signal: AbortSignal.timeout(12000),
+      signal: AbortSignal.timeout(8000),
     });
     const json = (await res.json()) as { ok?: boolean; description?: string };
     if (!res.ok || !json.ok) {
       return { ok: false, error: json.description || `Telegram HTTP ${res.status}` };
     }
-    return { ok: true, chatId };
+    return { ok: true };
   } catch (err) {
-    return { ok: false, error: err instanceof Error ? err.message : "Telegram failed" };
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : "Failed to answer callback query",
+    };
+  }
+}
+
+export async function fetchTelegramUpdates(input: {
+  botToken: string;
+  offset?: number;
+  limit?: number;
+  timeoutSeconds?: number;
+}): Promise<{ ok: boolean; updates: TelegramUpdate[]; error?: string }> {
+  const token = input.botToken.trim();
+  if (!token) return { ok: false, updates: [], error: "Bot token missing" };
+
+  const timeout = Math.max(0, Math.min(input.timeoutSeconds ?? 10, 30));
+  const limit = Math.max(1, Math.min(input.limit ?? 20, 100));
+  let query = `?limit=${limit}&timeout=${timeout}`;
+  if (typeof input.offset === "number") {
+    query += `&offset=${input.offset}`;
+  }
+
+  const url = `${TELEGRAM_ORIGIN}/bot${token}/getUpdates${query}`;
+  try {
+    const res = await fetch(url, {
+      signal: AbortSignal.timeout((timeout + 5) * 1000),
+    });
+    const json = (await res.json()) as {
+      ok?: boolean;
+      description?: string;
+      result?: TelegramUpdate[];
+    };
+    if (!res.ok || !json.ok) {
+      return { ok: false, updates: [], error: json.description || `Telegram HTTP ${res.status}` };
+    }
+    return { ok: true, updates: json.result || [] };
+  } catch (err) {
+    return {
+      ok: false,
+      updates: [],
+      error: err instanceof Error ? err.message : "Failed to fetch Telegram updates",
+    };
   }
 }
 
