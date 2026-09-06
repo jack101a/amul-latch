@@ -200,7 +200,9 @@ export async function verifyAmulOtp(token: string, rawOtp: string): Promise<Veri
         const rawDocCookie = await page.evaluate(() => document.cookie);
         const m = rawDocCookie.match(/jsessionid=([^;]+)/i);
         if (m) cookieVal = m[1];
-      } catch {}
+      } catch {
+        // Ignore cookie extraction failure from document.cookie
+      }
     }
 
     if (!cookieVal) {
@@ -228,7 +230,9 @@ export async function verifyAmulOtp(token: string, rawOtp: string): Promise<Veri
             const data = await res.json();
             addresses = data?.data || data?.records || (Array.isArray(data) ? data : []);
           }
-        } catch {}
+        } catch {
+          // Ignore address lookup failure from backend API
+        }
 
         const defaultAddr =
           addresses.find((a: any) => a.is_default || a.isDefault || a.default) || addresses[0] || null;
@@ -271,7 +275,9 @@ export async function verifyAmulOtp(token: string, rawOtp: string): Promise<Veri
           addressCount: addresses.length,
         };
       }, pending.phone);
-    } catch {}
+    } catch {
+      // Ignore evaluation failure when extracting profile in browser
+    }
 
     cleanupPending(token);
 

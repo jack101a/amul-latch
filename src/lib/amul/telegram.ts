@@ -9,6 +9,14 @@ export async function sendTelegram(input: {
   const chatId = input.chatId.trim();
   if (!token || !chatId) return { ok: false, error: "Telegram is not configured" };
 
+  // Validate format to prevent SSRF or URL path manipulation
+  if (!/^\d{5,15}:[A-Za-z0-9_-]{30,50}$/.test(token)) {
+    return { ok: false, error: "Invalid Telegram bot token format" };
+  }
+  if (!/^(-?\d+|@[A-Za-z0-9_]{4,32})$/.test(chatId)) {
+    return { ok: false, error: "Invalid Telegram chat ID format" };
+  }
+
   const url = `${TELEGRAM_ORIGIN}/bot${token}/sendMessage`;
   try {
     const res = await fetch(url, {
