@@ -18,11 +18,49 @@ import {
   DEFAULT_CONFIG,
   type AmulProduct,
   type AppConfig,
+  type SavedAddress,
   type UserProfileInfo,
   type WatchSnapshot,
   extractProteinGrams,
   productPageUrl,
 } from "@/lib/amul/types";
+
+const STANDARD_HUBS = [
+  { city: "Ahmedabad", pin: "380009" },
+  { city: "Bengaluru", pin: "560001" },
+  { city: "Delhi", pin: "110001" },
+  { city: "Mumbai", pin: "400001" },
+] as const;
+
+function extractAddressPincode(addr?: SavedAddress | null): string | null {
+  if (!addr) return null;
+  if (addr.zip) {
+    const m = addr.zip.match(/\b(\d{6})\b/);
+    if (m) return m[1];
+  }
+  if (addr.label) {
+    const m = addr.label.match(/\b(\d{6})\b/);
+    if (m) return m[1];
+  }
+  if (addr.raw) {
+    const rawPin =
+      (addr.raw as Record<string, unknown>).pincode ??
+      (addr.raw as Record<string, unknown>).zip ??
+      (addr.raw as Record<string, unknown>).zipcode ??
+      (addr.raw as Record<string, unknown>).postalCode;
+    if (typeof rawPin === "string" || typeof rawPin === "number") {
+      const m = String(rawPin).match(/\b(\d{6})\b/);
+      if (m) return m[1];
+    }
+    try {
+      const m = JSON.stringify(addr.raw).match(/\b(\d{6})\b/);
+      if (m) return m[1];
+    } catch {
+      /* ignore */
+    }
+  }
+  return null;
+}
 import { playRestockChime } from "@/lib/audio/chime";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -342,8 +380,37 @@ export function LatchDashboard() {
       ? Math.max(0, Math.round((Date.parse(snap.lastTickAt) + snap.nextPollMs - now) / 1000))
       : null;
 
-  async function loadPincode() {
-    const pin = pinInput.trim();
+  const quickHubs = useMemo(() => {
+    const hubs: { label: string; pin: string }[] = [];
+    const userAddr = snap?.userProfile?.defaultAddress;
+    const userPin = extractAddressPincode(userAddr);
+
+    if (userPin) {
+      const isDistinct = !STANDARD_HUBS.some((h) => h.pin === userPin);
+      if (isDistinct) {
+        const city = userAddr?.city?.trim() || "Saved";
+        hubs.push({
+          label: `📍 ${city} (${userPin})`,
+          pin: userPin,
+        });
+      }
+    }
+
+    for (const hub of STANDARD_HUBS) {
+      hubs.push({
+        label: `${hub.city} (${hub.pin})`,
+        pin: hub.pin,
+      });
+    }
+
+    return hubs;
+  }, [snap?.userProfile?.defaultAddress]);
+
+  async function loadPincode(overridePin?: string) {
+    if (overridePin) {
+      setPinInput(overridePin);
+    }
+    const pin = (overridePin ?? pinInput).trim();
     if (!/^\d{6}$/.test(pin)) {
       toast.error("Enter a 6-digit pincode");
       return;
@@ -619,6 +686,32 @@ export function LatchDashboard() {
             <p className="mt-2 text-xs text-muted-foreground">
               Maps to the Amul substore that actually holds inventory.
             </p>
+
+            <div className="mt-3.5 border-t border-border/50 pt-3">
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className="text-[11px] text-muted-foreground mr-0.5">Quick hubs:</span>
+                {quickHubs.map((hub) => {
+                  const isActive = config.pincode === hub.pin;
+                  return (
+                    <button
+                      key={hub.pin}
+                      type="button"
+                      disabled={busy === "pin"}
+                      onClick={() => void loadPincode(hub.pin)}
+                      className={cn(
+                        "px-2 py-0.5 rounded text-[11px] font-mono border transition-colors cursor-pointer flex items-center gap-1",
+                        isActive
+                          ? "border-stock/50 text-stock bg-stock/15 font-semibold"
+                          : "border-border/70 bg-muted/40 hover:bg-muted text-muted-foreground hover:text-foreground",
+                        busy === "pin" && "cursor-not-allowed opacity-50",
+                      )}
+                    >
+                      {hub.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
           </form>
 
           <div className="flex items-start gap-3 rounded-xl bg-card p-5 shadow-[var(--shadow-border)]">
