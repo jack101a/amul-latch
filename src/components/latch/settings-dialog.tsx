@@ -9,6 +9,7 @@ import {
   Phone,
   RefreshCw,
   Sparkles,
+  Volume2,
   XCircle,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -23,6 +24,7 @@ import {
   requestLoginOtp,
   submitLoginOtp,
 } from "@/lib/amul/actions";
+import { playRestockChime } from "@/lib/audio/chime";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -615,6 +617,37 @@ export function SettingsDialog({
               ) : null}
             </>
           )}
+        </section>
+
+        <Separator />
+
+        {/* Audio Alerts */}
+        <section className="flex flex-col gap-3">
+          <div className="flex items-center justify-between gap-4">
+            <div className="flex flex-col gap-0.5">
+              <p className="text-sm font-medium text-foreground">Restock audio alert</p>
+              <p className="text-xs text-muted-foreground">
+                Plays a subtle chime when any watched SKU comes into stock.
+              </p>
+            </div>
+            <Switch
+              checked={config.soundEnabled ?? true}
+              onCheckedChange={(v) => onChange({ soundEnabled: v })}
+              aria-label="Restock audio chime"
+            />
+          </div>
+          <div className="flex items-center">
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              onClick={() => playRestockChime()}
+              className="h-8 text-xs gap-1.5 text-foreground hover:text-foreground"
+            >
+              <Volume2 className="size-3.5 text-stock" />
+              <span>Test chime</span>
+            </Button>
+          </div>
         </section>
 
         <Separator />

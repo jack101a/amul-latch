@@ -20,8 +20,10 @@ import {
   type AppConfig,
   type UserProfileInfo,
   type WatchSnapshot,
+  extractProteinGrams,
   productPageUrl,
 } from "@/lib/amul/types";
+import { playRestockChime } from "@/lib/audio/chime";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -57,9 +59,13 @@ export function LatchDashboard() {
   const [query, setQuery] = useState("");
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [busy, setBusy] = useState<"pin" | "watch" | "checkout" | "tg" | null>(null);
-  const [filter, setFilter] = useState<"all" | "watched" | "out">("all");
+  const [filter, setFilter] = useState<"all" | "watched" | "value" | "out">("all");
   const [now, setNow] = useState(() => Date.now());
   const resumed = useRef(false);
+  const seenEventIds = useRef<Set<string>>(new Set());
+  const prevStockRef = useRef<Map<string, boolean>>(new Map());
+  const initialMountRef = useRef(true);
+  const lastChimeTime = useRef(0);
 
   useEffect(() => {
     try {
@@ -107,7 +113,9 @@ export function LatchDashboard() {
               setSnap((prev) => (prev ? { ...prev, userProfile: res.profile, sessionLoggedIn: true } : prev));
               try {
                 localStorage.setItem(PROFILE_KEY, JSON.stringify(res.profile));
-              } catch {}
+              } catch {
+                /* ignore */
+              }
               toast.success(`Connected to Amul: ${res.profile.userName}`);
             } else {
               toast.warning(res.message);
@@ -136,7 +144,9 @@ export function LatchDashboard() {
             if (s.userProfile) {
               try {
                 localStorage.setItem(PROFILE_KEY, JSON.stringify(s.userProfile));
-              } catch {}
+              } catch {
+                /* ignore */
+              }
             }
             return {
               ...s,
@@ -177,7 +187,9 @@ export function LatchDashboard() {
             if (s.userProfile) {
               try {
                 localStorage.setItem(PROFILE_KEY, JSON.stringify(s.userProfile));
-              } catch {}
+              } catch {
+                /* ignore */
+              }
             }
             return {
               ...s,
@@ -220,24 +232,80 @@ export function LatchDashboard() {
   const products: AmulProduct[] =
     live.length > 0
       ? live
-      : config.products.map((t) => ({
-          id: t.productId,
-          sku: t.sku,
-          name: t.name,
-          alias: t.alias,
-          price: 0,
-          available: 0,
-          inventoryQuantity: 0,
-          inventoryLowStock: 0,
-          inStock: false,
-          imageUrl: null,
-          sellerId: t.sellerId,
-          productUrl: productPageUrl(t.alias),
-        }));
+      : config.products.map((t) => {
+          const proteinGrams = extractProteinGrams(t.name, t.alias);
+          return {
+            id: t.productId,
+            sku: t.sku,
+            name: t.name,
+            alias: t.alias,
+            price: 0,
+            available: 0,
+            inventoryQuantity: 0,
+            inventoryLowStock: 0,
+            inStock: false,
+            imageUrl: null,
+            sellerId: t.sellerId,
+            productUrl: productPageUrl(t.alias),
+            proteinGrams,
+            costPerGramProtein: null,
+          };
+        });
   const trackedMap = useMemo(
     () => new Map(config.products.map((p) => [p.sku, p])),
     [config.products],
   );
+
+  // Restock audio chime monitor (watches restock events & stock transitions)
+  useEffect(() => {
+    if (!snap) return;
+
+    if (initialMountRef.current) {
+      // Seed seen events and current stock levels on initial load so past history doesn't chime
+      for (const e of snap.events) {
+        seenEventIds.current.add(e.id);
+      }
+      for (const p of products) {
+        prevStockRef.current.set(p.sku, p.inStock);
+      }
+      initialMountRef.current = false;
+      return;
+    }
+
+    let restockDetected = false;
+
+    // 1. Detect new restock events in activity log
+    for (const ev of snap.events) {
+      if (!seenEventIds.current.has(ev.id)) {
+        seenEventIds.current.add(ev.id);
+        if (ev.kind === "restock") {
+          restockDetected = true;
+        }
+      }
+    }
+
+    // 2. Detect stock transitions (out-of-stock -> in-stock) for watched products
+    const watchedSkuSet = new Set(config.products.map((p) => p.sku));
+    for (const p of products) {
+      if (watchedSkuSet.has(p.sku)) {
+        const wasInStock = prevStockRef.current.get(p.sku);
+        if (wasInStock === false && p.inStock) {
+          restockDetected = true;
+        }
+      }
+      prevStockRef.current.set(p.sku, p.inStock);
+    }
+
+    if (restockDetected) {
+      const currentTime = Date.now();
+      if (currentTime - lastChimeTime.current > 2000) {
+        lastChimeTime.current = currentTime;
+        if (config.soundEnabled) {
+          playRestockChime();
+        }
+      }
+    }
+  }, [snap, products, config.products, config.soundEnabled]);
 
   const visible = products
     .filter((p) => {
@@ -251,6 +319,13 @@ export function LatchDashboard() {
     })
     .slice()
     .sort((a, b) => {
+      if (filter === "value") {
+        if (a.inStock !== b.inStock) return a.inStock ? -1 : 1;
+        const aCost = a.costPerGramProtein ?? Infinity;
+        const bCost = b.costPerGramProtein ?? Infinity;
+        if (aCost !== bCost) return aCost - bCost;
+        return a.name.localeCompare(b.name);
+      }
       const aw = trackedMap.has(a.sku) ? 0 : 1;
       const bw = trackedMap.has(b.sku) ? 0 : 1;
       if (aw !== bw) return aw - bw;
@@ -382,12 +457,16 @@ export function LatchDashboard() {
   async function handleDisconnectSession() {
     try {
       localStorage.removeItem(PROFILE_KEY);
-    } catch {}
+    } catch {
+      /* ignore */
+    }
     const nextConfig = { ...config, sessionCookie: "" };
     setConfig(nextConfig);
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(nextConfig));
-    } catch {}
+    } catch {
+      /* ignore */
+    }
 
     setSnap((prev) =>
       prev
@@ -557,6 +636,7 @@ export function LatchDashboard() {
               {(
                 [
                   ["all", "All"],
+                  ["value", "Best Value"],
                   ["watched", "Watched"],
                   ["out", "Out of stock"],
                 ] as const
@@ -664,16 +744,22 @@ export function LatchDashboard() {
           if (profile) {
             try {
               localStorage.setItem(PROFILE_KEY, JSON.stringify(profile));
-            } catch {}
+            } catch {
+              /* ignore */
+            }
           } else {
             try {
               localStorage.removeItem(PROFILE_KEY);
-            } catch {}
+            } catch {
+              /* ignore */
+            }
             setConfig((prev) => {
               const next = { ...prev, sessionCookie: "" };
               try {
                 localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
-              } catch {}
+              } catch {
+                /* ignore */
+              }
               return next;
             });
           }

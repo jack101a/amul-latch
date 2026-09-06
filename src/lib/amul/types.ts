@@ -56,6 +56,7 @@ export type AppConfig = {
   products: TrackedProduct[];
   autoOrder: boolean;
   orderIfAlreadyInStock: boolean;
+  soundEnabled: boolean;
   telegramEnabled: boolean;
   telegramBotToken: string;
   telegramChatId: string;
@@ -78,6 +79,8 @@ export type AmulProduct = {
   imageUrl: string | null;
   sellerId?: string;
   productUrl: string;
+  proteinGrams?: number | null;
+  costPerGramProtein?: number | null;
 };
 
 export type SubstoreInfo = {
@@ -158,6 +161,7 @@ export const DEFAULT_CONFIG: AppConfig = {
   products: [],
   autoOrder: false,
   orderIfAlreadyInStock: false,
+  soundEnabled: true,
   telegramEnabled: false,
   telegramBotToken: "",
   telegramChatId: "",
@@ -197,3 +201,85 @@ export function maskSecret(value: string): string {
   if (v.length <= 6) return v ? "••••" : "";
   return `${v.slice(0, 3)}…${v.slice(-3)}`;
 }
+
+export function extractProteinGrams(name: string, alias?: string): number | null {
+  const text = `${name || ""} ${alias || ""}`.toLowerCase();
+
+  // 1. Explicit "<num>g protein" or "<num> g of protein" (e.g. "15g Protein", "25 g Protein", "35g of protein")
+  const explicitMatch = text.match(/(\d+(?:\.\d+)?)\s*(?:g|gm|gms|grams?)\s*(?:of\s*)?protein\b/);
+  if (explicitMatch) {
+    const val = parseFloat(explicitMatch[1]);
+    if (Number.isFinite(val) && val > 0) return val;
+  }
+
+  // 2. Slug style in aliases (e.g. "25g-protein", "15g-protein", "protein-25g")
+  const slugMatch =
+    text.match(/(?:^|[-_])(\d+(?:\.\d+)?)-?g-?protein\b/) ||
+    text.match(/\bprotein-?(\d+(?:\.\d+)?)-?g(?:[-_]|$)/);
+  if (slugMatch) {
+    const val = parseFloat(slugMatch[1]);
+    if (Number.isFinite(val) && val > 0) return val;
+  }
+
+  // 3. Whey sachet special handling:
+  // Amul Whey Protein sachets are 32g gross powder weight containing exactly 25g protein.
+  if (text.includes("sachet") && (text.includes("whey") || text.includes("32"))) {
+    return 25;
+  }
+
+  // 4. "protein <num>g" (e.g. "Protein: 25g" or "protein - 15g")
+  const prefixMatch = text.match(
+    /protein\s*(?:content|contains)?\s*[:\-\s]\s*(\d+(?:\.\d+)?)\s*(?:g|gm|gms|grams?)\b/,
+  );
+  if (prefixMatch) {
+    const val = parseFloat(prefixMatch[1]);
+    if (Number.isFinite(val) && val > 0) return val;
+  }
+
+  // 5. Parentheses with gram e.g. "(15g)" or "(25 g)" or "(35g)" or "(70 g)"
+  const parenMatch = text.match(/\(\s*(\d+(?:\.\d+)?)\s*(?:g|gm|gms|grams?)\s*\)/);
+  if (parenMatch) {
+    const val = parseFloat(parenMatch[1]);
+    if (Number.isFinite(val) && val > 0 && val <= 100) return val;
+  }
+
+  // 6. Explicit standalone protein gram patterns e.g. " 15g", " 24 g", " 25g", " 35g", " 70 g"
+  const specificMatch = text.match(/\b(15|24|25|30|35|40|50|60|70|75|80)\s*(?:g|gm|gms|grams?)\b/);
+  if (specificMatch) {
+    const val = parseFloat(specificMatch[1]);
+    if (Number.isFinite(val) && val > 0) return val;
+  }
+
+  // 7. General number with "g" if 10 <= val <= 85 (excluding pack weights like 200g, 250ml, etc.)
+  const genericGMatch = text.match(/\b(\d{1,2}(?:\.\d+)?)\s*(?:g|gm|gms|grams?)\b/);
+  if (genericGMatch) {
+    const val = parseFloat(genericGMatch[1]);
+    if (Number.isFinite(val) && val >= 10 && val <= 85) return val;
+  }
+
+  // 8. Product fallbacks for standard Amul offerings
+  if (text.includes("lassi")) return 15;
+  if (text.includes("buttermilk") || text.includes("chaas") || text.includes("chach")) return 15;
+  if (text.includes("paneer")) return 50;
+  if (text.includes("whey")) return 25;
+
+  return null;
+}
+
+export function calculateProteinCostPerGram(
+  price: number,
+  grams: number | null | undefined,
+): number | null {
+  if (
+    typeof price === "number" &&
+    price > 0 &&
+    typeof grams === "number" &&
+    grams > 0 &&
+    Number.isFinite(price) &&
+    Number.isFinite(grams)
+  ) {
+    return Number((price / grams).toFixed(2));
+  }
+  return null;
+}
+

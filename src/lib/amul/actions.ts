@@ -31,6 +31,7 @@ const configSchema = z.object({
   products: z.array(trackedSchema),
   autoOrder: z.boolean(),
   orderIfAlreadyInStock: z.boolean(),
+  soundEnabled: z.boolean().optional(),
   telegramEnabled: z.boolean(),
   telegramBotToken: z.string(),
   telegramChatId: z.string(),

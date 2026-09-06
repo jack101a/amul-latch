@@ -22,12 +22,15 @@ export function ProductCard({
   checkoutBusy,
 }: Props) {
   const selected = Boolean(tracked);
+  const isBestValue =
+    typeof product.costPerGramProtein === "number" && product.costPerGramProtein <= 1.8;
 
   return (
     <article
       className={cn(
         "flex flex-col overflow-hidden rounded-lg bg-card shadow-[var(--shadow-border)] transition-[box-shadow] duration-150",
         selected && "shadow-[var(--shadow-border-hover)]",
+        isBestValue && "ring-1 ring-stock/30",
       )}
     >
       <div className="relative aspect-[5/4] overflow-hidden bg-muted">
@@ -68,6 +71,19 @@ export function ProductCard({
             ) : null}
           </p>
         </div>
+
+        {typeof product.costPerGramProtein === "number" ? (
+          <div className="flex flex-wrap items-center gap-1.5">
+            <Badge variant="default" className="font-mono text-xs tabular-nums text-foreground/80">
+              ₹{product.costPerGramProtein}/g protein
+            </Badge>
+            {isBestValue ? (
+              <Badge variant="stock" className="border border-stock/30">
+                Best Value
+              </Badge>
+            ) : null}
+          </div>
+        ) : null}
 
         <div className="mt-auto flex items-center gap-2">
           <Button

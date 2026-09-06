@@ -6,6 +6,8 @@ import {
   type SubstoreInfo,
   type UserProfileInfo,
   type SessionVerificationResult,
+  calculateProteinCostPerGram,
+  extractProteinGrams,
   isInStock,
   productImageUrl,
   productPageUrl,
@@ -551,12 +553,15 @@ function mapProduct(row: RawProduct): AmulProduct {
     row.inventory_allow_out_of_stock !== false;
   const seller =
     typeof row.seller === "string" ? row.seller : (row.seller_id ?? row.seller?._id);
+  const price = Number(row.price ?? 0);
+  const proteinGrams = extractProteinGrams(row.name, row.alias);
+  const costPerGramProtein = calculateProteinCostPerGram(price, proteinGrams);
   return {
     id: row._id,
     sku: row.sku,
     name: row.name,
     alias: row.alias,
-    price: Number(row.price ?? 0),
+    price,
     available,
     inventoryQuantity: inventory,
     inventoryLowStock: lowStock,
@@ -564,6 +569,8 @@ function mapProduct(row: RawProduct): AmulProduct {
     imageUrl: productImageUrl(row.images?.[0]?.image),
     sellerId: seller,
     productUrl: productPageUrl(row.alias),
+    proteinGrams,
+    costPerGramProtein,
   };
 }
 
