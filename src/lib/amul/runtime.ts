@@ -1,6 +1,7 @@
 import { AmulClient } from "./client";
 import { runCheckout } from "./checkout";
 import { sendTelegram } from "./telegram";
+import { sendCallMeBot } from "./callmebot";
 import {
   DEFAULT_CONFIG,
   type ActivityEvent,
@@ -230,6 +231,17 @@ export async function pingTelegram(botToken: string, chatId: string) {
   });
   if (result.ok) pushEvent("telegram", "ok", "Telegram test sent");
   else pushEvent("telegram", "error", "Telegram test failed", result.error);
+  return result;
+}
+
+export async function pingWhatsApp(phone: string, apiKey: string) {
+  const result = await sendCallMeBot({
+    phone,
+    apiKey,
+    text: "Latch WhatsApp alerts are connected! ⚡ You will get instant restock, checkout, and payment alerts here.",
+  });
+  if (result.ok) pushEvent("whatsapp", "ok", "WhatsApp test sent");
+  else pushEvent("whatsapp", "error", "WhatsApp test failed", result.error);
   return result;
 }
 
@@ -694,12 +706,23 @@ function pushEvent(
 
 function notify(text: string) {
   const s = state();
-  if (!s.config.telegramEnabled) return;
-  void sendTelegram({
-    botToken: s.config.telegramBotToken,
-    chatId: s.config.telegramChatId,
-    text,
-  }).then((res) => {
-    if (!res.ok) pushEvent("telegram", "error", "Telegram failed", res.error);
-  });
+  if (s.config.telegramEnabled && s.config.telegramBotToken && s.config.telegramChatId) {
+    void sendTelegram({
+      botToken: s.config.telegramBotToken,
+      chatId: s.config.telegramChatId,
+      text,
+    }).then((res) => {
+      if (!res.ok) pushEvent("telegram", "error", "Telegram failed", res.error);
+    });
+  }
+
+  if (s.config.whatsappEnabled && s.config.whatsappPhone && s.config.whatsappApiKey) {
+    void sendCallMeBot({
+      phone: s.config.whatsappPhone,
+      apiKey: s.config.whatsappApiKey,
+      text,
+    }).then((res) => {
+      if (!res.ok) pushEvent("whatsapp", "error", "WhatsApp failed", res.error);
+    });
+  }
 }

@@ -11,6 +11,7 @@ import {
   startWatcher,
   stopWatcher,
   testTelegram,
+  testWhatsApp,
   tickWatcher,
   verifySessionCookie,
 } from "@/lib/amul/actions";
@@ -96,7 +97,7 @@ export function LatchDashboard() {
   const [pinInput, setPinInput] = useState("");
   const [query, setQuery] = useState("");
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [busy, setBusy] = useState<"pin" | "watch" | "checkout" | "tg" | null>(null);
+  const [busy, setBusy] = useState<"pin" | "watch" | "checkout" | "tg" | "whatsapp" | null>(null);
   const [filter, setFilter] = useState<"all" | "watched" | "value" | "out">("all");
   const [now, setNow] = useState(() => Date.now());
   const resumed = useRef(false);
@@ -583,6 +584,21 @@ export function LatchDashboard() {
     }
   }
 
+  async function sendWhatsAppTest() {
+    setBusy("whatsapp");
+    try {
+      const result = await testWhatsApp({
+        data: { phone: config.whatsappPhone, apiKey: config.whatsappApiKey },
+      });
+      if (result.ok) toast.success("WhatsApp test alert sent! Check your phone.");
+      else toast.error(result.error || "WhatsApp test failed");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "WhatsApp test failed");
+    } finally {
+      setBusy(null);
+    }
+  }
+
   async function handleDisconnectSession() {
     try {
       localStorage.removeItem(PROFILE_KEY);
@@ -812,6 +828,7 @@ export function LatchDashboard() {
             </div>
             <div className="flex items-center gap-2">
               {config.autoOrder ? <Badge variant="paper">Auto-order</Badge> : <Badge>Notify only</Badge>}
+              {config.whatsappEnabled ? <Badge variant="stock">WhatsApp</Badge> : null}
               {config.telegramEnabled ? <Badge variant="stock">Telegram</Badge> : null}
             </div>
           </div>
@@ -885,6 +902,8 @@ export function LatchDashboard() {
         onChange={patch}
         onTestTelegram={() => void sendTg()}
         telegramBusy={busy === "tg"}
+        onTestWhatsApp={() => void sendWhatsAppTest()}
+        whatsappBusy={busy === "whatsapp"}
         userProfile={hasActiveCookie ? snap?.userProfile : null}
         onProfileVerified={(profile) => {
           setSnap((prev) =>

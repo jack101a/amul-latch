@@ -51,6 +51,8 @@ type Props = {
   onChange: (patch: Partial<AppConfig>) => void;
   onTestTelegram: () => void;
   telegramBusy?: boolean;
+  onTestWhatsApp?: () => void;
+  whatsappBusy?: boolean;
   userProfile?: UserProfileInfo | null;
   onProfileVerified?: (profile: UserProfileInfo | null) => void;
   onDisconnect?: () => Promise<void> | void;
@@ -65,6 +67,8 @@ export function SettingsDialog({
   onChange,
   onTestTelegram,
   telegramBusy,
+  onTestWhatsApp,
+  whatsappBusy,
   userProfile,
   onProfileVerified,
   onDisconnect,
@@ -860,6 +864,96 @@ export function SettingsDialog({
               <span>Test chime</span>
             </Button>
           </div>
+        </section>
+
+        <Separator />
+
+        {/* WhatsApp Alerts (CallMeBot) */}
+        <section className="flex flex-col gap-3">
+          <div className="flex items-start justify-between gap-4">
+            <div className="space-y-0.5">
+              <div className="flex items-center gap-2">
+                <p className="text-sm font-medium">WhatsApp Alerts (CallMeBot)</p>
+                <Badge variant="stock" className="text-[10px] px-1.5 py-0">
+                  Recommended
+                </Badge>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Instant restock & payment alerts sent directly to your personal WhatsApp. Zero access to your account required.
+              </p>
+            </div>
+            <Switch
+              checked={config.whatsappEnabled}
+              onCheckedChange={(v) => onChange({ whatsappEnabled: v })}
+              aria-label="Enable WhatsApp"
+            />
+          </div>
+
+          <div className="rounded-lg border border-border/70 bg-muted/30 p-3 text-xs text-muted-foreground space-y-1.5">
+            <div className="flex items-center justify-between">
+              <span className="font-semibold text-foreground">30-Second Setup:</span>
+              <a
+                href="https://wa.me/34644565349?text=I%20allow%20callmebot%20to%20send%20me%20messages"
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1 text-stock hover:underline font-mono text-[11px]"
+              >
+                Open CallMeBot on WhatsApp <ExternalLink className="size-3" />
+              </a>
+            </div>
+            <ol className="list-decimal list-inside space-y-1 pl-1 text-[11px] leading-relaxed">
+              <li>
+                Tap the link above (or message CallMeBot on WhatsApp) with:{" "}
+                <code className="rounded bg-card px-1 py-0.5 font-mono text-foreground select-all">
+                  I allow callmebot to send me messages
+                </code>
+              </li>
+              <li>Wait ~15s for the bot to reply with your free <span className="text-foreground font-semibold">APIKEY</span>.</li>
+              <li>Enter your phone number and that API Key below, then click Test.</li>
+            </ol>
+          </div>
+
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="whatsapp-phone">WhatsApp phone number</Label>
+              <Input
+                id="whatsapp-phone"
+                type="tel"
+                placeholder="+919876543210"
+                value={config.whatsappPhone}
+                onChange={(e) => onChange({ whatsappPhone: e.target.value })}
+              />
+              <span className="text-[10px] text-muted-foreground">With country code (e.g. +91)</span>
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="whatsapp-apikey">CallMeBot API Key</Label>
+              <Input
+                id="whatsapp-apikey"
+                type="password"
+                placeholder="e.g. 123456"
+                value={config.whatsappApiKey}
+                onChange={(e) => onChange({ whatsappApiKey: e.target.value })}
+              />
+              <span className="text-[10px] text-muted-foreground">Returned by the bot on activation</span>
+            </div>
+          </div>
+
+          <Button
+            type="button"
+            variant="secondary"
+            onClick={onTestWhatsApp}
+            disabled={whatsappBusy || !config.whatsappPhone || !config.whatsappApiKey}
+            className="w-full sm:w-auto self-start"
+          >
+            {whatsappBusy ? (
+              <>
+                <LoaderCircle className="mr-2 size-3.5 animate-spin" />
+                Sending test message…
+              </>
+            ) : (
+              "Send test WhatsApp message"
+            )}
+          </Button>
         </section>
 
         <Separator />

@@ -9,6 +9,7 @@ import {
   fetchCatalog,
   getSnapshot,
   pingTelegram,
+  pingWhatsApp,
   setVerifiedProfile,
   startWatch,
   stopWatch,
@@ -35,6 +36,9 @@ const configSchema = z.object({
   telegramEnabled: z.boolean(),
   telegramBotToken: z.string(),
   telegramChatId: z.string(),
+  whatsappEnabled: z.boolean().optional(),
+  whatsappPhone: z.string().optional(),
+  whatsappApiKey: z.string().optional(),
   sessionCookie: z.string(),
   pollMinMs: z.number().int().min(500),
   pollMaxMs: z.number().int().min(500),
@@ -90,6 +94,12 @@ export const testTelegram = createServerFn({ method: "POST" })
   .validator(z.object({ botToken: z.string(), chatId: z.string() }))
   .handler(async ({ data }) => {
     return pingTelegram(data.botToken, data.chatId);
+  });
+
+export const testWhatsApp = createServerFn({ method: "POST" })
+  .validator(z.object({ phone: z.string(), apiKey: z.string() }))
+  .handler(async ({ data }) => {
+    return pingWhatsApp(data.phone, data.apiKey);
   });
 
 export const verifySessionCookie = createServerFn({ method: "POST" })
