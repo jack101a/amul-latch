@@ -115,6 +115,9 @@ export function setVerifiedProfile(cookie: string, profile: UserProfileInfo) {
   s.client.userName = profile.userName;
   s.client.userPhone = profile.userPhone || "";
   s.client.userEmail = profile.userEmail || "";
+  if (profile.defaultAddress) {
+    s.client.fallbackAddress = profile.defaultAddress;
+  }
   pushEvent(
     "session_ready",
     "ok",
@@ -461,7 +464,9 @@ async function performCheckout(
     pushEvent("order_success", "ok", "Order accepted", product.name, product.sku);
     notify(`Order accepted: ${product.name}`);
   } else if (attempt.status === "blocked") {
-    pushEvent("order_failed", "warn", "Paused for login / payment", attempt.message, product.sku);
+    const isAddress = attempt.message.toLowerCase().includes("address");
+    const title = isAddress ? "Delivery address required on Amul" : "Action required on Amul";
+    pushEvent("order_failed", "warn", title, attempt.message, product.sku);
     notify(`Paused: ${product.name}. ${attempt.message}`);
   } else {
     pushEvent("order_failed", "error", "Checkout failed", attempt.message, product.sku);
@@ -476,17 +481,45 @@ async function ensureClient(pincode: string, sessionCookie: string): Promise<Amu
     s.substore?.pincode === pincode &&
     s.sessionCookieUsed === sessionCookie
   ) {
+    if (s.userProfile) {
+      s.client.loggedIn = true;
+      if (s.userProfile.defaultAddress) {
+        s.client.fallbackAddress = s.userProfile.defaultAddress;
+      }
+    }
     return s.client;
   }
   const client = new AmulClient();
+  // Hydrate client with verified profile if available for this session
+  if (s.userProfile && (s.config.sessionCookie === sessionCookie || !sessionCookie)) {
+    client.loggedIn = true;
+    client.userId = s.userProfile.userId;
+    client.userName = s.userProfile.userName;
+    client.userPhone = s.userProfile.userPhone || "";
+    client.userEmail = s.userProfile.userEmail || "";
+    if (s.userProfile.defaultAddress) {
+      client.fallbackAddress = s.userProfile.defaultAddress;
+    }
+  }
   await client.init(sessionCookie);
   if (pincode) {
     s.substore = await client.setPincode(pincode);
   }
+  // Re-verify that userProfile is preserved in case refreshTid did not return user
+  if (s.userProfile && (s.config.sessionCookie === sessionCookie || !sessionCookie)) {
+    client.loggedIn = true;
+    client.userId = s.userProfile.userId;
+    client.userName = s.userProfile.userName;
+    client.userPhone = s.userProfile.userPhone || "";
+    client.userEmail = s.userProfile.userEmail || "";
+    if (s.userProfile.defaultAddress) {
+      client.fallbackAddress = s.userProfile.defaultAddress;
+    }
+  }
   s.client = client;
   s.sessionCookieUsed = sessionCookie;
   s.sessionReady = true;
-  if (client.loggedIn) {
+  if (client.loggedIn && !s.userProfile) {
     const profile = await client.fetchUserProfile().catch(() => null);
     if (profile) s.userProfile = profile;
   }

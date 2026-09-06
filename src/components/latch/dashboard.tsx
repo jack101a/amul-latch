@@ -534,7 +534,14 @@ export function LatchDashboard() {
       if (next.checkout?.status === "awaiting_payment") {
         toast.message("Payment approval required");
       } else if (next.checkout?.status === "blocked") {
-        toast.message("Paused for Amul login");
+        const msg = next.checkout.message || "";
+        if (msg.toLowerCase().includes("address")) {
+          toast.error("Delivery address required for checkout");
+        } else if (msg.toLowerCase().includes("login") || msg.toLowerCase().includes("session")) {
+          toast.message("Amul session login required");
+        } else {
+          toast.message(msg || "Checkout paused");
+        }
       } else if (next.checkout?.status === "failed") {
         toast.error(next.checkout.message);
       } else {
@@ -641,6 +648,7 @@ export function LatchDashboard() {
       {snap?.checkout && snap.checkout.status !== "failed" ? (
         <PaymentBanner
           checkout={snap.checkout}
+          isLoggedIn={Boolean(snap.userProfile || snap.sessionLoggedIn)}
           onDismiss={() => {
             void dismissCheckout().then(setSnap);
           }}
@@ -940,11 +948,26 @@ function Stat({ label, value }: { label: string; value: string }) {
   );
 }
 
+function getBannerTitle(checkout: NonNullable<WatchSnapshot["checkout"]>, isLoggedIn: boolean): string {
+  if (checkout.status === "awaiting_payment") return "Payment approval required";
+  if (checkout.status === "success") return "Order accepted";
+  if (checkout.status === "blocked") {
+    const msg = checkout.message.toLowerCase();
+    if (msg.includes("address")) return "Delivery address required";
+    if (msg.includes("hold") || msg.includes("unavailable") || msg.includes("limit")) return "SKU hold on Amul";
+    if (isLoggedIn) return "Action required on Amul";
+    return "Paused for Amul login";
+  }
+  return "Checkout in progress";
+}
+
 function PaymentBanner({
   checkout,
+  isLoggedIn = false,
   onDismiss,
 }: {
   checkout: NonNullable<WatchSnapshot["checkout"]>;
+  isLoggedIn?: boolean;
   onDismiss: () => void;
 }) {
   const href = checkout.paymentUrl || checkout.shopUrl;
@@ -952,13 +975,7 @@ function PaymentBanner({
     <div className="flex flex-col gap-3 rounded-xl bg-card px-5 py-4 shadow-[var(--shadow-border)] sm:flex-row sm:items-center">
       <div className="min-w-0 flex-1">
         <p className="text-sm font-medium">
-          {checkout.status === "awaiting_payment"
-            ? "Payment approval required"
-            : checkout.status === "success"
-              ? "Order accepted"
-              : checkout.status === "blocked"
-                ? "Paused for Amul login"
-                : "Checkout in progress"}
+          {getBannerTitle(checkout, isLoggedIn)}
         </p>
         <p className="mt-1 text-xs text-muted-foreground">{checkout.message}</p>
       </div>

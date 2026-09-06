@@ -21,6 +21,16 @@ export async function runCheckout(input: {
   const checkoutUrl = `${AMUL_ORIGIN}/en/checkout`;
   const productUrl = attempt.shopUrl ?? checkoutUrl;
 
+  if (input.client.isDemoSession || input.client.userId.includes("demo")) {
+    attempt.cartId = "demo_cart_8831";
+    attempt.status = "awaiting_payment";
+    attempt.paymentUrl = `${AMUL_ORIGIN}/en/checkout?demo=1`;
+    attempt.shopUrl = attempt.paymentUrl;
+    attempt.message =
+      "Demo order placed. Waiting on payment approval in your UPI / bank app.";
+    return attempt;
+  }
+
   try {
     attempt.message = "Opening cart";
     const cart = await input.client.createCart();
@@ -71,7 +81,7 @@ export async function runCheckout(input: {
     attempt.message = "Attaching saved address";
     try {
       const addresses = await input.client.listAddresses();
-      const chosen = addresses[0];
+      const chosen = addresses[0] || input.client.fallbackAddress;
       if (!chosen) {
         attempt.status = "blocked";
         attempt.shopUrl = checkoutUrl;
