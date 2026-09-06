@@ -50,6 +50,13 @@ export const getWatchStatus = createServerFn({ method: "POST" }).handler(async (
   return getSnapshot();
 });
 
+export const syncServerConfig = createServerFn({ method: "POST" })
+  .validator(z.object({ config: configSchema.partial() }))
+  .handler(async ({ data }) => {
+    applyConfig(data.config);
+    return getSnapshot();
+  });
+
 export const resolvePincode = createServerFn({ method: "POST" })
   .validator(z.object({ pincode: z.string(), sessionCookie: z.string().optional() }))
   .handler(async ({ data }) => {

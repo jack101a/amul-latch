@@ -14,6 +14,7 @@ import {
   testWhatsApp,
   tickWatcher,
   verifySessionCookie,
+  syncServerConfig,
 } from "@/lib/amul/actions";
 import {
   DEFAULT_CONFIG,
@@ -114,6 +115,9 @@ export function LatchDashboard() {
         const next = { ...DEFAULT_CONFIG, ...parsed };
         setConfig(next);
         setPinInput(next.pincode);
+
+        // Sync stored config (pincode, Telegram token, settings) to server runtime
+        void syncServerConfig({ data: { config: next } }).catch(() => undefined);
 
         // Sync stored session cookie to server runtime so server memory isn't empty
         if (next.sessionCookie?.trim()) {
@@ -320,7 +324,13 @@ export function LatchDashboard() {
     };
   }, [snap?.watching]);
 
-  const patch = (partial: Partial<AppConfig>) => setConfig((c) => ({ ...c, ...partial }));
+  const patch = (partial: Partial<AppConfig>) => {
+    setConfig((c) => {
+      const next = { ...c, ...partial };
+      void syncServerConfig({ data: { config: partial } }).catch(() => undefined);
+      return next;
+    });
+  };
 
   const live = catalog.length ? catalog : (snap?.products ?? []);
   const products: AmulProduct[] =

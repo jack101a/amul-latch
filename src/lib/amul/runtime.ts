@@ -53,17 +53,56 @@ type RuntimeState = {
 
 const g = globalThis as typeof globalThis & { __latchRuntime?: RuntimeState };
 
+function loadPersistedConfig(): Partial<AppConfig> {
+  try {
+    if (typeof process !== "undefined" && process.cwd) {
+      const fs = require("node:fs");
+      const path = require("node:path");
+      const file = path.resolve(process.cwd(), "latch-config.json");
+      if (fs.existsSync(file)) {
+        return JSON.parse(fs.readFileSync(file, "utf-8")) as Partial<AppConfig>;
+      }
+    }
+  } catch {
+    /* ignore */
+  }
+  return {};
+}
+
+function savePersistedConfig(config: AppConfig) {
+  try {
+    if (typeof process !== "undefined" && process.cwd) {
+      const fs = require("node:fs");
+      const path = require("node:path");
+      const file = path.resolve(process.cwd(), "latch-config.json");
+      fs.writeFileSync(file, JSON.stringify(config, null, 2), "utf-8");
+    }
+  } catch {
+    /* ignore */
+  }
+}
+
 function emptyState(): RuntimeState {
+  const persisted = loadPersistedConfig();
+  const envBotToken = (typeof process !== "undefined" ? process.env.TELEGRAM_BOT_TOKEN : "") || "";
+  const envChatId = (typeof process !== "undefined" ? process.env.TELEGRAM_CHAT_ID : "") || "";
+  const initialConfig: AppConfig = {
+    ...DEFAULT_CONFIG,
+    ...persisted,
+    ...(envBotToken ? { telegramBotToken: envBotToken, telegramEnabled: true } : {}),
+    ...(envChatId ? { telegramChatId: envChatId } : {}),
+  };
+
   return {
     watching: false,
-    config: { ...DEFAULT_CONFIG },
+    config: initialConfig,
     client: null,
     substore: null,
     products: [],
     events: [],
     checkout: null,
     lastTickAt: null,
-    nextPollMs: DEFAULT_CONFIG.pollMinMs,
+    nextPollMs: initialConfig.pollMinMs,
     pollCount: 0,
     lastError: null,
     amulReachable: true,
@@ -137,6 +176,7 @@ export function setVerifiedProfile(cookie: string, profile: UserProfileInfo) {
 export function applyConfig(partial: Partial<AppConfig>) {
   const s = state();
   s.config = { ...s.config, ...partial };
+  savePersistedConfig(s.config);
   ensureTelegramPoller();
 }
 
@@ -241,9 +281,11 @@ export async function pingTelegram(botToken: string, chatId?: string) {
     text: "Latch is connected. You will get restock, checkout, and payment alerts here. Latch never asks for UPI PIN, OTP, or CVV.",
   });
   if (result.ok) {
-    if (result.chatId && !chatId) {
-      applyConfig({ telegramChatId: result.chatId });
-    }
+    applyConfig({
+      telegramBotToken: botToken.trim(),
+      telegramEnabled: true,
+      ...(result.chatId ? { telegramChatId: result.chatId } : {}),
+    });
     pushEvent("telegram", "ok", "Telegram test sent");
   } else {
     pushEvent("telegram", "error", "Telegram test failed", result.error);
@@ -254,7 +296,11 @@ export async function pingTelegram(botToken: string, chatId?: string) {
 export async function detectTelegramChat(botToken: string) {
   const result = await autoDetectTelegramChatId(botToken);
   if (result.ok && result.chatId) {
-    applyConfig({ telegramChatId: result.chatId });
+    applyConfig({
+      telegramBotToken: botToken.trim(),
+      telegramEnabled: true,
+      telegramChatId: result.chatId,
+    });
     pushEvent("telegram", "ok", `Auto-detected Telegram Chat ID: ${result.chatId}`);
   }
   return result;
@@ -820,6 +866,7 @@ async function startTelegramPoller() {
   tgPollingActive = true;
   const abortController = new AbortController();
   tgPollingAbort = abortController;
+  console.log(`[Telegram Bot] Poller active for token ...${s.config.telegramBotToken.slice(-6)}`);
 
   void (async () => {
     while (tgPollingActive && !abortController.signal.aborted) {
@@ -834,23 +881,27 @@ async function startTelegramPoller() {
         });
 
         if (!res.ok) {
-          await new Promise((r) => setTimeout(r, 6000));
+          console.warn(`[Telegram Bot] Update fetch warning:`, res.error);
+          await new Promise((r) => setTimeout(r, 5000));
           continue;
         }
 
         for (const update of res.updates) {
           lastTgUpdateId = Math.max(lastTgUpdateId, update.update_id);
+          console.log(`[Telegram Bot] Processing update #${update.update_id}`);
           if (update.message) {
             await handleTelegramMessage(update.message);
           } else if (update.callback_query) {
             await handleTelegramCallback(update.callback_query);
           }
         }
-      } catch {
+      } catch (err) {
+        console.error(`[Telegram Bot] Loop error:`, err);
         await new Promise((r) => setTimeout(r, 4000));
       }
     }
     tgPollingActive = false;
+    console.log(`[Telegram Bot] Poller stopped`);
   })();
 }
 
