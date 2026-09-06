@@ -362,9 +362,12 @@ export function SettingsDialog({
                   </p>
                 </div>
               ) : (
-                <div className="pt-1.5 border-t border-border/40">
-                  <p className="text-warn text-[11px]">
-                    No saved delivery address found on this account. Please add one on shop.amul.com to enable auto-checkout.
+                <div className="pt-1.5 border-t border-border/40 space-y-1">
+                  <p className="text-warn text-[11px] font-medium">
+                    No saved delivery address found on this Amul account.
+                  </p>
+                  <p className="text-[10px] text-muted-foreground leading-normal">
+                    <strong>Is an address needed?</strong> Only if you enable <em>Auto-order on restock</em>. Stock tracking, audio chimes, and Telegram alerts work 100% without any saved address.
                   </p>
                 </div>
               )}

@@ -113,6 +113,31 @@ export function LatchDashboard() {
         const next = { ...DEFAULT_CONFIG, ...parsed };
         setConfig(next);
         setPinInput(next.pincode);
+
+        // Sync stored session cookie to server runtime so server memory isn't empty
+        if (next.sessionCookie?.trim()) {
+          void verifySessionCookie({ data: { sessionCookie: next.sessionCookie } })
+            .then((res) => {
+              if (res.valid && res.loggedIn && res.profile) {
+                setSnap((prev) =>
+                  prev
+                    ? {
+                        ...prev,
+                        userProfile: res.profile,
+                        sessionLoggedIn: true,
+                        sessionReady: true,
+                      }
+                    : prev,
+                );
+                try {
+                  localStorage.setItem(PROFILE_KEY, JSON.stringify(res.profile));
+                } catch {
+                  /* ignore */
+                }
+              }
+            })
+            .catch(() => undefined);
+        }
       }
     } catch {
       /* ignore corrupt local config */
@@ -172,13 +197,21 @@ export function LatchDashboard() {
   }, [config, hydrated]);
 
   useEffect(() => {
+    if (!hydrated) return;
     let cancelled = false;
     void getWatchStatus()
       .then((s) => {
         if (!cancelled) {
           setSnap((prev) => {
             const hasCookie = Boolean(config.sessionCookie?.trim());
-            const mergedProfile = s.userProfile ?? (hasCookie ? prev?.userProfile : null);
+            let cachedProfile: UserProfileInfo | null = null;
+            try {
+              const p = localStorage.getItem(PROFILE_KEY);
+              if (p) cachedProfile = JSON.parse(p) as UserProfileInfo;
+            } catch {
+              /* ignore */
+            }
+            const mergedProfile = s.userProfile ?? (hasCookie ? (prev?.userProfile ?? cachedProfile) : null);
             if (s.userProfile) {
               try {
                 localStorage.setItem(PROFILE_KEY, JSON.stringify(s.userProfile));
@@ -199,7 +232,7 @@ export function LatchDashboard() {
     return () => {
       cancelled = true;
     };
-  }, [config.sessionCookie]);
+  }, [config.sessionCookie, hydrated]);
 
   useEffect(() => {
     if (!hydrated || resumed.current) return;
@@ -216,12 +249,20 @@ export function LatchDashboard() {
   }, [hydrated, config]);
 
   useEffect(() => {
+    if (!hydrated) return;
     const id = window.setInterval(() => {
       void getWatchStatus()
         .then((s) => {
           setSnap((prev) => {
             const hasCookie = Boolean(config.sessionCookie?.trim());
-            const mergedProfile = s.userProfile ?? (hasCookie ? prev?.userProfile : null);
+            let cachedProfile: UserProfileInfo | null = null;
+            try {
+              const p = localStorage.getItem(PROFILE_KEY);
+              if (p) cachedProfile = JSON.parse(p) as UserProfileInfo;
+            } catch {
+              /* ignore */
+            }
+            const mergedProfile = s.userProfile ?? (hasCookie ? (prev?.userProfile ?? cachedProfile) : null);
             if (s.userProfile) {
               try {
                 localStorage.setItem(PROFILE_KEY, JSON.stringify(s.userProfile));
@@ -240,7 +281,7 @@ export function LatchDashboard() {
         .catch(() => undefined);
     }, 2500);
     return () => window.clearInterval(id);
-  }, [config.sessionCookie]);
+  }, [config.sessionCookie, hydrated]);
 
   useEffect(() => {
     if (!snap?.watching) return;

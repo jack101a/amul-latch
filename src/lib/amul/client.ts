@@ -231,12 +231,47 @@ export class AmulClient {
   }
 
   async listAddresses(): Promise<SavedAddress[]> {
-    if (!this.userId) return [];
-    const q = encodeURIComponent(JSON.stringify({ user_id: this.userId }));
-    const json = await this.requestJson<Record<string, unknown>>(
-      `${AMUL_ORIGIN}/api/1/entity/ms.user_addresses?q=${q}&limit=20`,
-    );
-    const rows = asRecords(json);
+    let rows: Array<Record<string, unknown>> = [];
+
+    // 1. First attempt: query /ms.user_addresses directly.
+    // Amul scopes user addresses to the authenticated session cookie.
+    try {
+      const json = await this.requestJson<Record<string, unknown>>(
+        `${AMUL_ORIGIN}/api/1/entity/ms.user_addresses?limit=20`,
+      );
+      rows = asRecords(json);
+    } catch {
+      // ignore
+    }
+
+    // 2. Second attempt: if empty and userId is known, try with ?q={user_id}
+    if (!rows.length && this.userId) {
+      try {
+        const q = encodeURIComponent(JSON.stringify({ user_id: this.userId }));
+        const jsonWithQ = await this.requestJson<Record<string, unknown>>(
+          `${AMUL_ORIGIN}/api/1/entity/ms.user_addresses?q=${q}&limit=20`,
+        );
+        rows = asRecords(jsonWithQ);
+      } catch {
+        // ignore
+      }
+    }
+
+    // 3. Third attempt: check if addresses are embedded inside user profile record
+    if (!rows.length && this.userId) {
+      try {
+        const u = await this.requestJson<Record<string, unknown>>(
+          `${AMUL_ORIGIN}/api/1/entity/ms.users/${this.userId}`,
+        );
+        const data = ((u.data ?? u) as Record<string, any>) || {};
+        if (Array.isArray(data.addresses) && data.addresses.length) {
+          rows = data.addresses;
+        }
+      } catch {
+        // ignore
+      }
+    }
+
     return rows.map(mapAddress);
   }
 
@@ -603,12 +638,19 @@ function unwrapCart(json: Record<string, unknown>): Record<string, unknown> {
   return inner;
 }
 
-function asRecords(json: Record<string, unknown>): Array<Record<string, unknown>> {
+function asRecords(json: Record<string, unknown> | null | undefined): Array<Record<string, unknown>> {
+  if (!json || typeof json !== "object") return [];
   if (Array.isArray(json.data)) return json.data as Array<Record<string, unknown>>;
+  if (Array.isArray(json.records)) return json.records as Array<Record<string, unknown>>;
   if (Array.isArray(json)) return json as unknown as Array<Record<string, unknown>>;
   const inner = json.data;
-  if (inner && typeof inner === "object" && Array.isArray((inner as { data?: unknown }).data)) {
-    return (inner as { data: Array<Record<string, unknown>> }).data;
+  if (inner && typeof inner === "object") {
+    if (Array.isArray((inner as { data?: unknown }).data)) {
+      return (inner as { data: Array<Record<string, unknown>> }).data;
+    }
+    if (Array.isArray((inner as { records?: unknown }).records)) {
+      return (inner as { records: Array<Record<string, unknown>> }).records;
+    }
   }
   return [];
 }
