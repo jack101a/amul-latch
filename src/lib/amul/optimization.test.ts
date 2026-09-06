@@ -26,6 +26,8 @@ test("Protein Economics: total protein grams calculation", () => {
   assert.equal(extractProteinGrams("Amul Chocolate Whey Protein Gift Pack, 34 g | Pack of 10 sachets"), 250);
   // 24g * 30 = 720g total
   assert.equal(extractProteinGrams("Amul Whey Protein 30 Sachets 24 g"), 720);
+  // 20g * 30 = 600g total (Amul High Protein Blueberry Shake)
+  assert.equal(extractProteinGrams("Amul High Protein Blueberry Shake, 200 mL | Pack of 30"), 600);
   // Single pack 15g
   assert.equal(extractProteinGrams("Amul High Protein Buttermilk 15g"), 15);
   // Generic non-protein

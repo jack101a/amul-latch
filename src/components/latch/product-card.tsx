@@ -66,7 +66,15 @@ export function ProductCard({
             {product.inStock ? (
               <span className="tabular-nums">
                 <span className="mx-1.5 text-subtle">·</span>
-                {product.inventoryQuantity} units
+                {product.inventoryQuantity}{" "}
+                {/pack|sachet|box/i.test(product.name)
+                  ? product.inventoryQuantity === 1
+                    ? "box"
+                    : "boxes"
+                  : product.inventoryQuantity === 1
+                    ? "unit"
+                    : "units"}{" "}
+                in stock
               </span>
             ) : null}
           </p>
@@ -75,7 +83,7 @@ export function ProductCard({
         {typeof product.costPerGramProtein === "number" ? (
           <div className="flex flex-wrap items-center gap-1.5">
             <Badge variant="default" className="font-mono text-xs tabular-nums text-foreground/80">
-              ₹{product.costPerGramProtein}/g protein
+              ₹{Number(product.costPerGramProtein).toFixed(2)}/g protein
             </Badge>
             {isBestValue ? (
               <Badge variant="stock" className="border border-stock/30">

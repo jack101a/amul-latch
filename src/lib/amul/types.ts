@@ -271,9 +271,9 @@ export function extractProteinGrams(name: string, alias?: string): number | null
     }
   }
 
-  // 5. Explicit standalone protein gram patterns e.g. " 15g", " 24 g", " 25g", " 35g", " 70 g"
+  // 5. Explicit standalone protein gram patterns e.g. " 10g", " 15g", " 20g", " 24 g", " 25g", " 35g", " 70 g"
   if (baseGrams === null) {
-    const specificMatch = text.match(/\b(15|24|25|30|35|40|50|60|70|75|80)\s*(?:g|gm|gms|grams?)\b/);
+    const specificMatch = text.match(/\b(10|15|20|24|25|30|35|40|50|60|70|75|80)\s*(?:g|gm|gms|grams?)\b/);
     if (specificMatch) {
       const val = parseFloat(specificMatch[1]);
       if (Number.isFinite(val) && val > 0) baseGrams = val;
@@ -299,6 +299,8 @@ export function extractProteinGrams(name: string, alias?: string): number | null
   if (baseGrams === null) {
     if (text.includes("lassi")) baseGrams = 15;
     else if (text.includes("buttermilk") || text.includes("chaas") || text.includes("chach")) baseGrams = 15;
+    else if (text.includes("kool") && (text.includes("shake") || text.includes("milkshake"))) baseGrams = 10;
+    else if (text.includes("shake")) baseGrams = 20;
     else if (text.includes("paneer")) baseGrams = 50;
     else if (text.includes("whey")) baseGrams = 25;
   }
