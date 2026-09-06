@@ -694,28 +694,33 @@ export function SettingsDialog({
         <Separator />
 
         {/* Polling Intervals */}
-        <section className="grid gap-3 sm:grid-cols-3">
-          <NumberField
-            label="Min poll (sec)"
-            value={Math.round(config.pollMinMs / 1000)}
-            min={3}
-            max={60}
-            onChange={(n) => onChange({ pollMinMs: n * 1000 })}
-          />
-          <NumberField
-            label="Max poll (sec)"
-            value={Math.round(config.pollMaxMs / 1000)}
-            min={10}
-            max={300}
-            onChange={(n) => onChange({ pollMaxMs: n * 1000 })}
-          />
-          <NumberField
-            label="Order cooldown (min)"
-            value={Math.round(config.orderCooldownMs / 60000)}
-            min={5}
-            max={120}
-            onChange={(n) => onChange({ orderCooldownMs: n * 60000 })}
-          />
+        <section className="flex flex-col gap-2">
+          <div className="grid gap-3 sm:grid-cols-3">
+            <NumberField
+              label="Min poll (sec)"
+              value={Math.round(config.pollMinMs / 1000)}
+              min={3}
+              max={3600}
+              onChange={(n) => onChange({ pollMinMs: n * 1000 })}
+            />
+            <NumberField
+              label="Max poll (sec)"
+              value={Math.round(config.pollMaxMs / 1000)}
+              min={5}
+              max={7200}
+              onChange={(n) => onChange({ pollMaxMs: n * 1000 })}
+            />
+            <NumberField
+              label="Order cooldown (min)"
+              value={Math.round(config.orderCooldownMs / 60000)}
+              min={1}
+              max={1440}
+              onChange={(n) => onChange({ orderCooldownMs: n * 60000 })}
+            />
+          </div>
+          <p className="text-[11px] text-muted-foreground">
+            Fast polling (6–15s) catches fast-selling protein restocks. Higher intervals (e.g., 1800s / 30m) minimize checks.
+          </p>
         </section>
 
         <div className="rounded-lg bg-muted/60 p-3 text-xs text-muted-foreground">

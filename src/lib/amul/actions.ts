@@ -36,8 +36,8 @@ const configSchema = z.object({
   telegramBotToken: z.string(),
   telegramChatId: z.string(),
   sessionCookie: z.string(),
-  pollMinMs: z.number().int().min(3000).max(120000),
-  pollMaxMs: z.number().int().min(5000).max(300000),
+  pollMinMs: z.number().int().min(3000).max(60 * 60 * 1000),
+  pollMaxMs: z.number().int().min(5000).max(120 * 60 * 1000),
   orderCooldownMs: z.number().int().min(60000).max(24 * 60 * 60 * 1000),
 });
 

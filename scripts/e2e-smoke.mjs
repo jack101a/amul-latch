@@ -1,35 +1,25 @@
 import { chromium } from "playwright";
-import { mkdirSync } from "node:fs";
-
-mkdirSync("screenshots", { recursive: true });
 
 async function main() {
   const browser = await chromium.launch({ headless: true });
-  const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+  const page = await browser.newPage({ viewport: { width: 1280, height: 1000 } });
 
   await page.goto("http://127.0.0.1:8082/", { waitUntil: "networkidle" });
   await page.waitForTimeout(1000);
 
-  // Click Mumbai quick hub chip
-  const mumbaiChip = page.locator('button:has-text("Mumbai (400001)")').first();
-  if (await mumbaiChip.isVisible()) {
-    console.log("Clicking Mumbai (400001) quick chip...");
-    await mumbaiChip.click();
-    await page.waitForTimeout(3500);
+  const settingsBtn = page.locator('button[aria-label="Settings"], button:has-text("Settings"), button:has(svg.lucide-settings)').first();
+  if (await settingsBtn.isVisible()) {
+    await settingsBtn.click();
+    await page.waitForTimeout(500);
+    // Scroll dialog content
+    const dialogContent = page.locator('[role="dialog"]').first();
+    await dialogContent.evaluate((el) => el.scrollTo(0, el.scrollHeight));
+    await page.waitForTimeout(300);
+    await page.screenshot({ path: "screenshots/latch-settings-expanded-intervals.png" });
+    console.log("Captured updated settings screenshot!");
   }
-
-  // Filter for Blueberry
-  const searchInput = page.locator('input[placeholder*="Filter by name"]').first();
-  if (await searchInput.isVisible()) {
-    await searchInput.fill("Blueberry");
-    await page.waitForTimeout(1000);
-  }
-
-  await page.screenshot({ path: "screenshots/latch-mumbai-blueberry.png" });
-  console.log("Captured Mumbai blueberry screenshot: screenshots/latch-mumbai-blueberry.png");
 
   await browser.close();
-  console.log("Done!");
 }
 
 main().catch((err) => {
