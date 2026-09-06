@@ -38,6 +38,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
+import { cn } from "@/lib/utils";
 
 type Props = {
   open: boolean;
@@ -694,32 +695,58 @@ export function SettingsDialog({
         <Separator />
 
         {/* Polling Intervals */}
-        <section className="flex flex-col gap-2">
+        <section className="flex flex-col gap-2.5">
           <div className="grid gap-3 sm:grid-cols-3">
-            <NumberField
-              label="Min poll (sec)"
-              value={Math.round(config.pollMinMs / 1000)}
-              min={3}
-              max={3600}
-              onChange={(n) => onChange({ pollMinMs: n * 1000 })}
+            <IntervalField
+              label="Min poll interval"
+              valueMs={config.pollMinMs}
+              onChange={(ms) => onChange({ pollMinMs: ms })}
+              allowHours
             />
-            <NumberField
-              label="Max poll (sec)"
-              value={Math.round(config.pollMaxMs / 1000)}
-              min={5}
-              max={7200}
-              onChange={(n) => onChange({ pollMaxMs: n * 1000 })}
+            <IntervalField
+              label="Max poll interval"
+              valueMs={config.pollMaxMs}
+              onChange={(ms) => onChange({ pollMaxMs: ms })}
+              allowHours
             />
-            <NumberField
-              label="Order cooldown (min)"
-              value={Math.round(config.orderCooldownMs / 60000)}
-              min={1}
-              max={1440}
-              onChange={(n) => onChange({ orderCooldownMs: n * 60000 })}
+            <IntervalField
+              label="Order cooldown"
+              valueMs={config.orderCooldownMs}
+              onChange={(ms) => onChange({ orderCooldownMs: ms })}
+              allowHours
             />
           </div>
+
+          {/* Quick Timing Presets */}
+          <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
+            <span className="text-[11px] text-muted-foreground mr-1">Presets:</span>
+            {[
+              { label: "Flash (6s / 40s)", min: 6000, max: 40000 },
+              { label: "Normal (15s / 2m)", min: 15000, max: 120000 },
+              { label: "Relaxed (30m / 45m)", min: 30 * 60000, max: 45 * 60000 },
+              { label: "Ultra-low (1h / 2h)", min: 60 * 60000, max: 120 * 60000 },
+            ].map((p) => {
+              const active = config.pollMinMs === p.min && config.pollMaxMs === p.max;
+              return (
+                <button
+                  key={p.label}
+                  type="button"
+                  onClick={() => onChange({ pollMinMs: p.min, pollMaxMs: p.max })}
+                  className={cn(
+                    "px-2 py-0.5 rounded text-[11px] font-mono border transition-colors cursor-pointer",
+                    active
+                      ? "border-stock/50 text-stock bg-stock/15 font-semibold"
+                      : "border-border/70 bg-muted/40 hover:bg-muted text-muted-foreground hover:text-foreground",
+                  )}
+                >
+                  {p.label}
+                </button>
+              );
+            })}
+          </div>
+
           <p className="text-[11px] text-muted-foreground">
-            Fast polling (6–15s) catches fast-selling protein restocks. Higher intervals (e.g., 1800s / 30m) minimize checks.
+            Enter any time value you want in seconds, minutes, or hours. Fast (6–15s) catches rapid restocks; relaxed (30–45m) minimizes checks.
           </p>
         </section>
 
@@ -738,33 +765,77 @@ export function SettingsDialog({
   );
 }
 
-function NumberField({
+function IntervalField({
   label,
-  value,
-  min,
-  max,
+  valueMs,
   onChange,
+  allowHours = false,
 }: {
   label: string;
-  value: number;
-  min: number;
-  max: number;
-  onChange: (n: number) => void;
+  valueMs: number;
+  onChange: (ms: number) => void;
+  allowHours?: boolean;
 }) {
+  const defaultUnit =
+    allowHours && valueMs >= 3600000 && valueMs % 3600000 === 0
+      ? "hrs"
+      : valueMs >= 60000 && valueMs % 60000 === 0
+        ? "min"
+        : "sec";
+
+  const [unit, setUnit] = useState<"sec" | "min" | "hrs">(defaultUnit);
+
+  useEffect(() => {
+    if (allowHours && valueMs >= 3600000 && valueMs % 3600000 === 0) {
+      setUnit("hrs");
+    } else if (valueMs >= 60000 && valueMs % 60000 === 0) {
+      setUnit("min");
+    } else {
+      setUnit("sec");
+    }
+  }, [valueMs, allowHours]);
+
+  const displayVal =
+    unit === "hrs"
+      ? Math.round(valueMs / 3600000)
+      : unit === "min"
+        ? Math.round(valueMs / 60000)
+        : Math.round(valueMs / 1000);
+
   return (
     <div className="flex flex-col gap-1.5">
       <Label className="text-xs">{label}</Label>
-      <Input
-        type="number"
-        min={min}
-        max={max}
-        value={Number.isFinite(value) ? value : ""}
-        onChange={(e) => {
-          const n = Number.parseInt(e.target.value, 10);
-          if (Number.isFinite(n)) onChange(n);
-        }}
-        className="font-mono text-xs"
-      />
+      <div className="flex items-center rounded-md border border-border bg-input/20 focus-within:ring-1 focus-within:ring-ring overflow-hidden">
+        <Input
+          type="number"
+          min={1}
+          value={Number.isFinite(displayVal) && displayVal > 0 ? displayVal : ""}
+          onChange={(e) => {
+            const n = Number.parseInt(e.target.value, 10);
+            if (Number.isFinite(n) && n > 0) {
+              const mult = unit === "hrs" ? 3600000 : unit === "min" ? 60000 : 1000;
+              onChange(n * mult);
+            }
+          }}
+          className="border-0 bg-transparent focus-visible:ring-0 focus-visible:ring-offset-0 font-mono text-xs px-2.5 h-8 flex-1 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+        />
+        <select
+          value={unit}
+          onChange={(e) => {
+            const nextUnit = e.target.value as "sec" | "min" | "hrs";
+            setUnit(nextUnit);
+            const currentMs = valueMs;
+            const mult = nextUnit === "hrs" ? 3600000 : nextUnit === "min" ? 60000 : 1000;
+            const n = Math.max(1, Math.round(currentMs / mult));
+            onChange(n * mult);
+          }}
+          className="bg-muted/80 text-[11px] font-mono text-muted-foreground hover:text-foreground px-2 h-8 border-l border-border outline-none cursor-pointer"
+        >
+          <option value="sec">sec</option>
+          <option value="min">min</option>
+          {allowHours ? <option value="hrs">hrs</option> : null}
+        </select>
+      </div>
     </div>
   );
 }

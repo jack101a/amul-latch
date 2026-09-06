@@ -589,20 +589,22 @@ export function calculateAdaptiveInterval(s: RuntimeState, now = new Date()): nu
 
   const allOut = tracked.length > 0 && tracked.every((t) => !s.products.find((p) => p.sku === t.sku)?.inStock);
   if (allOut) {
+    const minMs = Math.max(500, s.config.pollMinMs);
+    const maxMs = Math.max(minMs, s.config.pollMaxMs);
     const istHour = getISTDecimalHour(now);
 
     // Night Dormancy window: 23:00 to 06:30 IST
     if (istHour >= 23 || istHour < 6.5) {
-      return Math.min(90000, Math.max(s.config.pollMaxMs, 45000));
+      return Math.max(maxMs, 45000);
     }
 
     // Daytime Peak Restock windows: 10:00 - 14:00 & 18:00 - 22:00 IST
     if ((istHour >= 10 && istHour < 14) || (istHour >= 18 && istHour < 22)) {
-      return Math.min(s.config.pollMaxMs, Math.max(s.config.pollMinMs, 7000));
+      return minMs;
     }
 
     // Daytime standard window (06:30 - 10:00 & 14:00 - 18:00 & 22:00 - 23:00 IST)
-    return Math.min(s.config.pollMaxMs, Math.max(s.config.pollMinMs, 10000));
+    return Math.round((minMs + maxMs) / 2);
   }
 
   return s.config.pollMinMs;

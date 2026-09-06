@@ -11,12 +11,11 @@ async function main() {
   if (await settingsBtn.isVisible()) {
     await settingsBtn.click();
     await page.waitForTimeout(500);
-    // Scroll dialog content
     const dialogContent = page.locator('[role="dialog"]').first();
     await dialogContent.evaluate((el) => el.scrollTo(0, el.scrollHeight));
     await page.waitForTimeout(300);
-    await page.screenshot({ path: "screenshots/latch-settings-expanded-intervals.png" });
-    console.log("Captured updated settings screenshot!");
+    await page.screenshot({ path: "screenshots/latch-settings-flexible-time.png" });
+    console.log("Captured updated flexible settings screenshot!");
   }
 
   await browser.close();
