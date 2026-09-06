@@ -1,0 +1,52 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Production builds
+.output/
+.vercel/
+dist/
+build/
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Environment & Secrets (STRICT: NEVER COMMIT)
+.env
+.env.*
+!.env.example
+*.local
+
+# Runtime Data & Session State
+data/
+*.sqlite
+*.db
+
+# Screenshots & QA artifacts
+screenshots/
+artifacts/
+scratch*
+*.zip
+
+# Operating System files
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+
+# Editor directories
+.idea/
+.vscode/
+*.sublime-project
+*.sublime-workspace
+
+# Grok sandbox internals
+.grok/
+.project_id
+AGENTS.md
+.node_modules.lock

@@ -1,0 +1,13 @@
+node_modules
+.git
+.github
+screenshots
+artifacts
+*.log
+.env
+.env.*
+!.env.example
+*.local
+.DS_Store
+*.zip
+scratch*

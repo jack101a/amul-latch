@@ -1,0 +1,30 @@
+services:
+  latch:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: amul-latch
+    restart: unless-stopped
+    ports:
+      - "8082:8082"
+    environment:
+      - PORT=8082
+      - HOST=0.0.0.0
+      - PINCODE=
+      - TELEGRAM_ENABLED=false
+      - TELEGRAM_BOT_TOKEN=
+      - TELEGRAM_CHAT_ID=
+      - AUTO_ORDER=false
+      - ORDER_IF_ALREADY_IN_STOCK=false
+    deploy:
+      resources:
+        limits:
+          cpus: "1.00"
+          memory: 512M
+        reservations:
+          memory: 64M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
