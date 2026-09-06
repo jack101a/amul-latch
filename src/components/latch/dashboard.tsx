@@ -305,6 +305,20 @@ export function LatchDashboard() {
     return () => window.clearInterval(id);
   }, [snap?.watching]);
 
+  // Guard against accidental back navigation or tab closure while watcher is actively polling
+  useEffect(() => {
+    if (!snap?.watching) return;
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = "Restock watcher is actively polling Amul. Leaving will pause monitoring.";
+      return e.returnValue;
+    };
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => {
+      window.removeEventListener("beforeunload", handleBeforeUnload);
+    };
+  }, [snap?.watching]);
+
   const patch = (partial: Partial<AppConfig>) => setConfig((c) => ({ ...c, ...partial }));
 
   const live = catalog.length ? catalog : (snap?.products ?? []);

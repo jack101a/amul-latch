@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import {
   AlertTriangle,
+  ArrowLeft,
   Check,
   CheckCircle2,
   Copy,
@@ -116,6 +117,35 @@ export function SettingsDialog({
       });
     }
   }, [open, userProfile, config.sessionCookie, disconnecting]);
+
+  const pushedHashRef = useRef(false);
+
+  // Intercept browser back button & Android back gesture to close modal instead of exiting site
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    if (open) {
+      if (window.location.hash !== "#settings") {
+        window.history.pushState({ modal: "settings" }, "", "#settings");
+        pushedHashRef.current = true;
+      }
+
+      const onPopState = () => {
+        pushedHashRef.current = false;
+        onOpenChange(false);
+      };
+
+      window.addEventListener("popstate", onPopState);
+      return () => {
+        window.removeEventListener("popstate", onPopState);
+      };
+    } else {
+      if (pushedHashRef.current && window.location.hash === "#settings") {
+        pushedHashRef.current = false;
+        window.history.back();
+      }
+    }
+  }, [open, onOpenChange]);
 
   const runVerification = async (cookieStr: string) => {
     const clean = cookieStr.trim();
@@ -251,7 +281,18 @@ export function SettingsDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
-        <DialogHeader>
+        <DialogHeader className="space-y-1">
+          <div className="flex items-center justify-between pb-1">
+            <button
+              type="button"
+              onClick={() => onOpenChange(false)}
+              className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors -ml-1 px-1.5 py-1 rounded hover:bg-muted/60 cursor-pointer"
+            >
+              <ArrowLeft className="size-3.5 text-stock" />
+              <span className="font-medium">Back to desk</span>
+            </button>
+            <span className="font-mono text-[10px] text-muted-foreground uppercase tracking-widest">Settings</span>
+          </div>
           <DialogTitle className="font-display text-2xl tracking-tight">Desk settings</DialogTitle>
           <DialogDescription className="text-xs">
             Secrets stay in this browser. Latch never stores UPI PIN, OTP, CVV, or bank passwords.
