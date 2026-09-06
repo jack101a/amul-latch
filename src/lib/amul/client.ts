@@ -12,6 +12,7 @@ import {
   productImageUrl,
   productPageUrl,
 } from "./types";
+import { lookupSubstore } from "./substores";
 
 const BROWSE = `${AMUL_ORIGIN}/en/browse/protein`;
 
@@ -192,19 +193,25 @@ export class AmulClient {
       throw new AmulError(`Amul does not deliver to ${pin}`);
     }
 
+    const rawSlug = String(record.substore || "").toLowerCase().trim();
+    const mapped = lookupSubstore(rawSlug);
+
     await this.requestJson(`${AMUL_ORIGIN}/entity/ms.settings/_/setPreferences`, {
       method: "PUT",
       body: { data: { store: record.substore } },
+    }).catch(() => {
+      // Preference update is best-effort (can 503 anonymously);
+      // explicit substore ID parameter on product queries handles warehouse targeting reliably.
     });
 
-    const info = await this.refreshTid();
-    const data = info.data ?? {};
-    const sub = info.substore ?? {};
+    const info = await this.refreshTid().catch(() => ({}));
+    const data = ((info as any)?.data ?? {}) as Record<string, unknown>;
+    const sub = ((info as any)?.substore ?? {}) as Record<string, unknown>;
     this.substore = {
       pincode: pin,
-      slug: String(data.store ?? record.substore),
-      id: String(data.substore_id ?? sub._id ?? ""),
-      name: String(sub.name ?? record.substore),
+      slug: rawSlug,
+      id: mapped?.id || String(data.substore_id ?? sub._id ?? ""),
+      name: mapped?.name || String(sub.name ?? record.substore),
     };
     return this.substore;
   }
@@ -214,23 +221,31 @@ export class AmulClient {
       throw new AmulError("Set a pincode before listing products");
     }
 
+    // Amul/StoreHippo requires the 24-character hexadecimal ObjectId for warehouse inventory lookup
+    const substoreParam =
+      this.substore.id || lookupSubstore(this.substore.slug)?.id || this.substore.slug;
+
     const parts = PRODUCT_FIELDS.map((f) => `fields[${f}]=1`);
     parts.push(
       "filters[0][field]=categories",
       "filters[0][value][0]=protein",
       "filters[0][operator]=in",
       "filters[0][original]=1",
-      "facets=false",
+      "facets=true",
+      "facetgroup=default_category_facet",
       "limit=80",
       "total=1",
       "start=0",
-      "v=1",
+      "v=6",
       "device_type=other",
-      `substore=${encodeURIComponent(this.substore.slug)}`,
+      `substore=${encodeURIComponent(substoreParam)}`,
     );
 
+    // StoreHippo serves different inventory when nested query brackets are percent-encoded
+    const queryString = parts.join("&").replace(/%5B/g, "[").replace(/%5D/g, "]");
+
     const json = await this.requestJson<ProductsResponse>(
-      `${AMUL_ORIGIN}/api/1/entity/ms.products?${parts.join("&")}`,
+      `${AMUL_ORIGIN}/api/1/entity/ms.products?${queryString}`,
     );
     const rows = json.data ?? [];
     return rows.map(mapProduct);
