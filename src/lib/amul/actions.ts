@@ -8,8 +8,6 @@ import {
   disconnectSession,
   fetchCatalog,
   getSnapshot,
-  pingTelegram,
-  detectTelegramChat,
   pingWhatsApp,
   setVerifiedProfile,
   startWatch,
@@ -34,9 +32,6 @@ const configSchema = z.object({
   autoOrder: z.boolean(),
   orderIfAlreadyInStock: z.boolean(),
   soundEnabled: z.boolean().optional(),
-  telegramEnabled: z.boolean(),
-  telegramBotToken: z.string(),
-  telegramChatId: z.string(),
   whatsappEnabled: z.boolean().optional(),
   whatsappPhone: z.string().optional(),
   whatsappApiKey: z.string().optional(),
@@ -98,17 +93,7 @@ export const dismissCheckout = createServerFn({ method: "POST" }).handler(async 
   return clearCheckout();
 });
 
-export const testTelegram = createServerFn({ method: "POST" })
-  .validator(z.object({ botToken: z.string(), chatId: z.string().optional() }))
-  .handler(async ({ data }) => {
-    return pingTelegram(data.botToken, data.chatId);
-  });
 
-export const detectTelegramChatId = createServerFn({ method: "POST" })
-  .validator(z.object({ botToken: z.string() }))
-  .handler(async ({ data }) => {
-    return detectTelegramChat(data.botToken);
-  });
 
 export const testWhatsApp = createServerFn({ method: "POST" })
   .validator(z.object({ phone: z.string(), apiKey: z.string() }))

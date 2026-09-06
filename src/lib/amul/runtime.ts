@@ -1,13 +1,5 @@
 import { AmulClient } from "./client";
 import { runCheckout } from "./checkout";
-import {
-  sendTelegram,
-  autoDetectTelegramChatId,
-  fetchTelegramUpdates,
-  answerCallbackQuery,
-  type TelegramUpdate,
-  type TelegramReplyMarkup,
-} from "./telegram";
 import { sendCallMeBot } from "./callmebot";
 import {
   DEFAULT_CONFIG,
@@ -84,13 +76,9 @@ function savePersistedConfig(config: AppConfig) {
 
 function emptyState(): RuntimeState {
   const persisted = loadPersistedConfig();
-  const envBotToken = (typeof process !== "undefined" ? process.env.TELEGRAM_BOT_TOKEN : "") || "";
-  const envChatId = (typeof process !== "undefined" ? process.env.TELEGRAM_CHAT_ID : "") || "";
   const initialConfig: AppConfig = {
     ...DEFAULT_CONFIG,
     ...persisted,
-    ...(envBotToken ? { telegramBotToken: envBotToken, telegramEnabled: true } : {}),
-    ...(envChatId ? { telegramChatId: envChatId } : {}),
   };
 
   return {
@@ -177,7 +165,6 @@ export function applyConfig(partial: Partial<AppConfig>) {
   const s = state();
   s.config = { ...s.config, ...partial };
   savePersistedConfig(s.config);
-  ensureTelegramPoller();
 }
 
 export async function fetchCatalog(pincode: string): Promise<{
@@ -211,7 +198,6 @@ export async function startWatch(config: AppConfig) {
   const s = state();
   const same = s.watching && sameWatch(s.config, config);
   s.config = { ...DEFAULT_CONFIG, ...config };
-  ensureTelegramPoller();
   if (!same) {
     s.primed = false;
     s.previousStock = {};
@@ -272,38 +258,6 @@ export function disconnectSession(): WatchSnapshot {
   s.client = null;
   pushEvent("session_ready", "info", "Amul session disconnected");
   return getSnapshot();
-}
-
-export async function pingTelegram(botToken: string, chatId?: string) {
-  const result = await sendTelegram({
-    botToken,
-    chatId,
-    text: "Latch is connected. You will get restock, checkout, and payment alerts here. Latch never asks for UPI PIN, OTP, or CVV.",
-  });
-  if (result.ok) {
-    applyConfig({
-      telegramBotToken: botToken.trim(),
-      telegramEnabled: true,
-      ...(result.chatId ? { telegramChatId: result.chatId } : {}),
-    });
-    pushEvent("telegram", "ok", "Telegram test sent");
-  } else {
-    pushEvent("telegram", "error", "Telegram test failed", result.error);
-  }
-  return result;
-}
-
-export async function detectTelegramChat(botToken: string) {
-  const result = await autoDetectTelegramChatId(botToken);
-  if (result.ok && result.chatId) {
-    applyConfig({
-      telegramBotToken: botToken.trim(),
-      telegramEnabled: true,
-      telegramChatId: result.chatId,
-    });
-    pushEvent("telegram", "ok", `Auto-detected Telegram Chat ID: ${result.chatId}`);
-  }
-  return result;
 }
 
 export async function pingWhatsApp(phone: string, apiKey: string) {
@@ -439,18 +393,7 @@ async function poll() {
     for (const live of restocks) {
       pushEvent("restock", "ok", "Restock detected", live.name, live.sku);
       notify(
-        `🚨 <b>RESTOCK: ${live.name}</b>\n\nNow in stock for <b>${s.config.pincode}</b>!\nPrice: ₹${live.price}\n\nTap below to order immediately:`,
-        {
-          parseMode: "HTML",
-          replyMarkup: {
-            inline_keyboard: [
-              [
-                { text: "⚡ Instant Order (1x)", callback_data: `buy:${live.sku}` },
-                { text: "🛒 Open Shop", url: `https://shop.amul.com/en/product/${live.alias}` },
-              ],
-            ],
-          },
-        },
+        `🚨 RESTOCK: ${live.name}\n\nNow in stock for ${s.config.pincode}!\nPrice: ₹${live.price}\nShop: https://shop.amul.com/en/product/${live.alias}`,
       );
       const trackedItem = tracked.find((t) => t.sku === live.sku);
       if (trackedItem && s.config.autoOrder) {
@@ -552,26 +495,15 @@ async function performCheckout(
     pushEvent("payment_required", "warn", "Payment approval required", attempt.message, product.sku);
     notify(
       [
-        `💳 <b>Payment Required for ${product.name}</b>`,
+        `💳 Payment Required for ${product.name}`,
         ``,
         `Latch has reserved your items and locked the cart!`,
         attempt.paymentUrl
-          ? `👉 <a href="${attempt.paymentUrl}">Click here to Authorize Payment</a>`
-          : `👉 <a href="${attempt.shopUrl}">Open Cart on Amul</a>`,
+          ? `👉 Authorize Payment: ${attempt.paymentUrl}`
+          : `👉 Open Cart on Amul: ${attempt.shopUrl || "https://shop.amul.com/en/cart"}`,
         ``,
-        `<i>Approve in your UPI / bank app. Latch never asks for PIN, OTP, or CVV.</i>`,
+        `Approve in your UPI / bank app. Latch never asks for PIN, OTP, or CVV.`,
       ].join("\n"),
-      {
-        parseMode: "HTML",
-        replyMarkup: attempt.paymentUrl
-          ? {
-              inline_keyboard: [
-                [{ text: "💳 Pay on Gateway", url: attempt.paymentUrl }],
-                [{ text: "🛒 Open Amul Cart", url: attempt.shopUrl || "https://shop.amul.com/en/cart" }],
-              ],
-            }
-          : undefined,
-      },
     );
   } else if (attempt.status === "success") {
     pushEvent("order_success", "ok", "Order accepted", product.name, product.sku);
@@ -805,23 +737,8 @@ function pushEvent(
   if (s.events.length > 200) s.events.length = 200;
 }
 
-function notify(
-  text: string,
-  options?: { replyMarkup?: TelegramReplyMarkup; parseMode?: "HTML" | "Markdown" },
-) {
+function notify(text: string) {
   const s = state();
-  if (s.config.telegramEnabled && s.config.telegramBotToken && s.config.telegramChatId) {
-    void sendTelegram({
-      botToken: s.config.telegramBotToken,
-      chatId: s.config.telegramChatId,
-      text,
-      replyMarkup: options?.replyMarkup,
-      parseMode: options?.parseMode,
-    }).then((res) => {
-      if (!res.ok) pushEvent("telegram", "error", "Telegram failed", res.error);
-    });
-  }
-
   if (s.config.whatsappEnabled && s.config.whatsappPhone && s.config.whatsappApiKey) {
     const plain = text.replace(/<[^>]+>/g, "");
     void sendCallMeBot({
@@ -832,547 +749,4 @@ function notify(
       if (!res.ok) pushEvent("whatsapp", "error", "WhatsApp failed", res.error);
     });
   }
-}
-
-// ==========================================
-// Telegram Two-Way Interactive Bot Engine
-// ==========================================
-
-let tgPollingActive = false;
-let tgPollingAbort: AbortController | null = null;
-let lastTgUpdateId = 0;
-
-export function ensureTelegramPoller() {
-  const s = state();
-  if (!s.config.telegramEnabled || !s.config.telegramBotToken) {
-    stopTelegramPoller();
-    return;
-  }
-  if (tgPollingActive) return;
-  startTelegramPoller();
-}
-
-export function stopTelegramPoller() {
-  if (tgPollingAbort) {
-    tgPollingAbort.abort();
-    tgPollingAbort = null;
-  }
-  tgPollingActive = false;
-}
-
-async function startTelegramPoller() {
-  const s = state();
-  if (tgPollingActive || !s.config.telegramEnabled || !s.config.telegramBotToken) return;
-  tgPollingActive = true;
-  const abortController = new AbortController();
-  tgPollingAbort = abortController;
-  console.log(`[Telegram Bot] Poller active for token ...${s.config.telegramBotToken.slice(-6)}`);
-
-  void (async () => {
-    while (tgPollingActive && !abortController.signal.aborted) {
-      try {
-        const token = s.config.telegramBotToken;
-        if (!token) break;
-
-        const res = await fetchTelegramUpdates({
-          botToken: token,
-          offset: lastTgUpdateId > 0 ? lastTgUpdateId + 1 : undefined,
-          timeoutSeconds: 8,
-        });
-
-        if (!res.ok) {
-          console.warn(`[Telegram Bot] Update fetch warning:`, res.error);
-          await new Promise((r) => setTimeout(r, 5000));
-          continue;
-        }
-
-        for (const update of res.updates) {
-          lastTgUpdateId = Math.max(lastTgUpdateId, update.update_id);
-          console.log(`[Telegram Bot] Processing update #${update.update_id}`);
-          if (update.message) {
-            await handleTelegramMessage(update.message);
-          } else if (update.callback_query) {
-            await handleTelegramCallback(update.callback_query);
-          }
-        }
-      } catch (err) {
-        console.error(`[Telegram Bot] Loop error:`, err);
-        await new Promise((r) => setTimeout(r, 4000));
-      }
-    }
-    tgPollingActive = false;
-    console.log(`[Telegram Bot] Poller stopped`);
-  })();
-}
-
-async function handleTelegramMessage(msg: NonNullable<TelegramUpdate["message"]>) {
-  const s = state();
-  const token = s.config.telegramBotToken;
-  if (!token) return;
-
-  const chatId = String(msg.chat.id);
-  const text = (msg.text || "").trim();
-  if (!text) return;
-
-  // Security & Chat pairing
-  if (!s.config.telegramChatId) {
-    applyConfig({ telegramChatId: chatId });
-    pushEvent("telegram", "ok", `Telegram chat auto-paired: ${chatId}`);
-  } else if (s.config.telegramChatId !== chatId) {
-    await sendTelegram({
-      botToken: token,
-      chatId,
-      text: "⛔ <b>Access Denied</b>\nThis Latch bot instance is paired with another user.",
-      parseMode: "HTML",
-    });
-    return;
-  }
-
-  const parts = text.split(/\s+/);
-  const rawCmd = (parts[0] || "").toLowerCase().replace(/@\w+$/, "");
-  const arg = parts.slice(1).join(" ").trim();
-
-  if (rawCmd === "/start" || rawCmd === "/help") {
-    const welcome = [
-      "🥛 <b>Latch Amul Protein Bot</b>",
-      "Your self-hosted Amul protein restock & auto-order assistant.",
-      "",
-      "<b>Commands:</b>",
-      "• /status — Watcher state, account & live stats",
-      "• /stock — Live in-stock protein items at your pincode",
-      "• /pin <code> — Switch delivery pincode (e.g. <code>/pin 400068</code>)",
-      "• /buy <sku> — Instantly order an in-stock item",
-      "• /pause — Pause the background watcher",
-      "• /resume — Resume background watching",
-    ].join("\n");
-
-    await sendTelegram({
-      botToken: token,
-      chatId,
-      text: welcome,
-      parseMode: "HTML",
-      replyMarkup: {
-        inline_keyboard: [
-          [
-            { text: "📊 Check Status", callback_data: "cmd:status" },
-            { text: "📦 View Stock", callback_data: "cmd:stock" },
-          ],
-          [
-            { text: "▶️ Resume", callback_data: "cmd:resume" },
-            { text: "⏸ Pause", callback_data: "cmd:pause" },
-          ],
-        ],
-      },
-    });
-    return;
-  }
-
-  if (rawCmd === "/status") {
-    await sendTelegramStatus(chatId);
-    return;
-  }
-
-  if (rawCmd === "/stock") {
-    await sendTelegramStock(chatId);
-    return;
-  }
-
-  if (rawCmd === "/pin" || rawCmd === "/pincode") {
-    const pin = arg.replace(/\D/g, "");
-    if (!/^\d{6}$/.test(pin)) {
-      await sendTelegram({
-        botToken: token,
-        chatId,
-        text: "⚠️ Please provide a valid 6-digit pincode, e.g. <code>/pin 400068</code>",
-        parseMode: "HTML",
-      });
-      return;
-    }
-
-    try {
-      applyConfig({ pincode: pin });
-      const cat = await fetchCatalog(pin);
-      const inStockCount = cat.products.filter((p) => p.inStock).length;
-      await sendTelegram({
-        botToken: token,
-        chatId,
-        text: [
-          `📍 <b>Delivery Pincode Updated: ${pin}</b>`,
-          `Substore: <b>${cat.substore.name}</b>`,
-          `Catalog: <b>${cat.products.length}</b> protein items (<b>${inStockCount}</b> in stock)`,
-        ].join("\n"),
-        parseMode: "HTML",
-        replyMarkup: {
-          inline_keyboard: [
-            [{ text: "📦 View Live Stock", callback_data: "cmd:stock" }],
-            [{ text: "📊 Status", callback_data: "cmd:status" }],
-          ],
-        },
-      });
-    } catch (err) {
-      await sendTelegram({
-        botToken: token,
-        chatId,
-        text: `❌ Failed to update pincode ${pin}: ${err instanceof Error ? err.message : "Unknown error"}`,
-      });
-    }
-    return;
-  }
-
-  if (rawCmd.startsWith("/buy") || rawCmd === "/order") {
-    let sku = "";
-    if (rawCmd.startsWith("/buy_")) {
-      sku = rawCmd.slice(5).trim();
-    } else {
-      sku = arg;
-    }
-    if (!sku) {
-      await sendTelegram({
-        botToken: token,
-        chatId,
-        text: "⚠️ Please specify a SKU, e.g. <code>/buy 54203</code> (send /stock to see available items)",
-        parseMode: "HTML",
-      });
-      return;
-    }
-    await executeTelegramBuy(chatId, sku);
-    return;
-  }
-
-  if (rawCmd === "/pause" || rawCmd === "/stop") {
-    s.watching = false;
-    if (s.timer) {
-      clearTimeout(s.timer);
-      s.timer = null;
-    }
-    pushEvent("watch_started", "info", "Watcher paused via Telegram");
-    await sendTelegram({
-      botToken: token,
-      chatId,
-      text: "⏸ <b>Watcher Paused</b>\nBackground polling is paused. Send /resume or tap below to reactivate.",
-      parseMode: "HTML",
-      replyMarkup: {
-        inline_keyboard: [[{ text: "▶️ Resume Watcher", callback_data: "cmd:resume" }]],
-      },
-    });
-    return;
-  }
-
-  if (rawCmd === "/resume" || rawCmd === "/startwatch") {
-    s.watching = true;
-    schedule(0);
-    pushEvent("watch_started", "ok", "Watcher resumed via Telegram");
-    await sendTelegram({
-      botToken: token,
-      chatId,
-      text: `▶️ <b>Watcher Resumed</b>\nMonitoring <b>${s.config.pincode || "configured pincode"}</b> for restocks.`,
-      parseMode: "HTML",
-      replyMarkup: {
-        inline_keyboard: [
-          [{ text: "📊 Check Status", callback_data: "cmd:status" }],
-          [{ text: "📦 View Stock", callback_data: "cmd:stock" }],
-        ],
-      },
-    });
-    return;
-  }
-
-  await sendTelegram({
-    botToken: token,
-    chatId,
-    text: "Command not recognized. Send /help or /status to see available options.",
-  });
-}
-
-async function sendTelegramStatus(chatId: string) {
-  const s = state();
-  const token = s.config.telegramBotToken;
-  if (!token) return;
-
-  const inStock = s.products.filter((p) => p.inStock).length;
-  const watchingCount = s.config.products.length;
-  const stateLabel = s.watching ? "Active 🟢" : "Paused ⏸";
-  const userLabel = s.userProfile
-    ? `${s.userProfile.userName} (${s.userProfile.userPhone || "Account linked"}) ✅`
-    : "Guest (No Amul session linked) ⚠️";
-  const modeLabel = s.config.autoOrder ? "Auto-Order Enabled ⚡" : "Notify Only 🔔";
-
-  const msg = [
-    "📊 <b>Latch Telemetry Status</b>",
-    "",
-    `• <b>State:</b> ${stateLabel}`,
-    `• <b>Pincode:</b> ${s.config.pincode || "Not set"} (${s.substore?.name || "No hub"})`,
-    `• <b>Account:</b> ${userLabel}`,
-    `• <b>Mode:</b> ${modeLabel}`,
-    `• <b>Watching:</b> ${watchingCount} SKU(s)`,
-    `• <b>Live In-Stock:</b> ${inStock} items`,
-    `• <b>Poll Interval:</b> ${Math.round(s.config.pollMinMs / 1000)}s – ${Math.round(s.config.pollMaxMs / 1000)}s`,
-    `• <b>Total Polls:</b> ${s.pollCount}`,
-  ].join("\n");
-
-  await sendTelegram({
-    botToken: token,
-    chatId,
-    text: msg,
-    parseMode: "HTML",
-    replyMarkup: {
-      inline_keyboard: [
-        [
-          { text: "🔄 Refresh Status", callback_data: "cmd:status" },
-          { text: "📦 View Stock", callback_data: "cmd:stock" },
-        ],
-        [
-          s.watching
-            ? { text: "⏸ Pause Watcher", callback_data: "cmd:pause" }
-            : { text: "▶️ Resume Watcher", callback_data: "cmd:resume" },
-        ],
-      ],
-    },
-  });
-}
-
-async function sendTelegramStock(chatId: string) {
-  const s = state();
-  const token = s.config.telegramBotToken;
-  if (!token) return;
-
-  if (!s.config.pincode) {
-    await sendTelegram({
-      botToken: token,
-      chatId,
-      text: "⚠️ Pincode is not set. Send e.g. <code>/pin 400068</code> first.",
-      parseMode: "HTML",
-    });
-    return;
-  }
-
-  if (!s.products.length) {
-    try {
-      await fetchCatalog(s.config.pincode);
-    } catch {
-      // ignore
-    }
-  }
-
-  const inStock = s.products.filter((p) => p.inStock);
-  if (inStock.length === 0) {
-    await sendTelegram({
-      botToken: token,
-      chatId,
-      text: `📦 <b>Stock Status:</b> All protein items are currently <b>out of stock</b> for pincode <b>${s.config.pincode}</b> (${s.substore?.name || "Hub"}).\n\nLatch is watching and will alert you the second any item restocks!`,
-      parseMode: "HTML",
-      replyMarkup: {
-        inline_keyboard: [
-          [{ text: "🔄 Check Again", callback_data: "cmd:stock" }],
-          [{ text: "📊 Status", callback_data: "cmd:status" }],
-        ],
-      },
-    });
-    return;
-  }
-
-  const lines: string[] = [
-    `📦 <b>Live In-Stock Protein (${inStock.length} items)</b>`,
-    `Delivery Pincode: <b>${s.config.pincode}</b> (${s.substore?.name || "Hub"})`,
-    "",
-  ];
-
-  const buttons: { text: string; callback_data: string }[][] = [];
-
-  for (let i = 0; i < Math.min(inStock.length, 8); i++) {
-    const p = inStock[i];
-    const valuePart = p.costPerGramProtein ? ` · ₹${p.costPerGramProtein}/g` : "";
-    lines.push(
-      `<b>${i + 1}. ${p.name}</b>`,
-      `💰 ₹${p.price}${valuePart} · /buy_${p.sku}`,
-      "",
-    );
-
-    const shortName = p.name.length > 22 ? p.name.slice(0, 20) + "..." : p.name;
-    buttons.push([{ text: `⚡ Buy ${shortName} (₹${p.price})`, callback_data: `buy:${p.sku}` }]);
-  }
-
-  buttons.push([
-    { text: "🔄 Refresh Stock", callback_data: "cmd:stock" },
-    { text: "📊 Status", callback_data: "cmd:status" },
-  ]);
-
-  await sendTelegram({
-    botToken: token,
-    chatId,
-    text: lines.join("\n"),
-    parseMode: "HTML",
-    replyMarkup: { inline_keyboard: buttons },
-  });
-}
-
-async function executeTelegramBuy(chatId: string, sku: string) {
-  const s = state();
-  const token = s.config.telegramBotToken;
-  if (!token) return;
-
-  const live = s.products.find((p) => p.sku === sku);
-  const trackedItem = s.config.products.find((p) => p.sku === sku);
-
-  if (!live && !trackedItem) {
-    await sendTelegram({
-      botToken: token,
-      chatId,
-      text: `⚠️ SKU <code>${sku}</code> was not found in the current catalog. Send /stock to see available items.`,
-      parseMode: "HTML",
-    });
-    return;
-  }
-
-  const name = live?.name || trackedItem?.name || sku;
-  const alias = live?.alias || trackedItem?.alias || "";
-  const productId = live?.id || trackedItem?.productId || "";
-  const sellerId = live?.sellerId || trackedItem?.sellerId || "";
-  const inStock = live ? live.inStock : true;
-
-  if (!inStock) {
-    await sendTelegram({
-      botToken: token,
-      chatId,
-      text: `⚠️ <b>${name}</b> is currently out of stock for ${s.config.pincode}. Latch will watch for restocks.`,
-      parseMode: "HTML",
-    });
-    return;
-  }
-
-  if (!s.client || !s.sessionReady) {
-    await sendTelegram({
-      botToken: token,
-      chatId,
-      text: [
-        `⚠️ <b>No Active Amul Session</b>`,
-        `Cannot place order for <b>${name}</b> because you haven't linked your Amul account in Latch.`,
-        ``,
-        `👉 Please log in on the Latch web dashboard first (via OTP or Session Cookie).`,
-      ].join("\n"),
-      parseMode: "HTML",
-    });
-    return;
-  }
-
-  await sendTelegram({
-    botToken: token,
-    chatId,
-    text: [
-      `⚡ <b>Instant Checkout Triggered</b>`,
-      `Product: <b>${name}</b>`,
-      `Delivery Pincode: <b>${s.config.pincode}</b>`,
-      ``,
-      `Latch is locking the cart and preparing order on Amul...`,
-    ].join("\n"),
-    parseMode: "HTML",
-  });
-
-  try {
-    const target: TrackedProduct = {
-      sku,
-      name,
-      alias,
-      productId,
-      sellerId,
-      quantity: 1,
-    };
-    await performCheckout(target, "manual");
-  } catch (err) {
-    await sendTelegram({
-      botToken: token,
-      chatId,
-      text: `❌ Checkout error: ${err instanceof Error ? err.message : "Unknown error"}`,
-    });
-  }
-}
-
-async function handleTelegramCallback(cb: NonNullable<TelegramUpdate["callback_query"]>) {
-  const s = state();
-  const token = s.config.telegramBotToken;
-  if (!token) return;
-
-  const callbackQueryId = cb.id;
-  const chatId = String(cb.message?.chat.id || "");
-  const data = (cb.data || "").trim();
-
-  if (s.config.telegramChatId && chatId !== s.config.telegramChatId) {
-    await answerCallbackQuery({
-      botToken: token,
-      callbackQueryId,
-      text: "Access denied",
-      showAlert: true,
-    });
-    return;
-  }
-
-  if (data.startsWith("buy:")) {
-    const sku = data.slice(4).trim();
-    await answerCallbackQuery({
-      botToken: token,
-      callbackQueryId,
-      text: "Starting instant checkout...",
-    });
-    await executeTelegramBuy(chatId, sku);
-    return;
-  }
-
-  if (data === "cmd:status") {
-    await answerCallbackQuery({ botToken: token, callbackQueryId, text: "Updating status..." });
-    await sendTelegramStatus(chatId);
-    return;
-  }
-
-  if (data === "cmd:stock") {
-    await answerCallbackQuery({ botToken: token, callbackQueryId, text: "Fetching live stock..." });
-    await sendTelegramStock(chatId);
-    return;
-  }
-
-  if (data === "cmd:pause") {
-    s.watching = false;
-    if (s.timer) {
-      clearTimeout(s.timer);
-      s.timer = null;
-    }
-    pushEvent("watch_started", "info", "Watcher paused via Telegram");
-    await answerCallbackQuery({ botToken: token, callbackQueryId, text: "Watcher paused" });
-    await sendTelegram({
-      botToken: token,
-      chatId,
-      text: "⏸ <b>Watcher Paused</b>. Send /resume or tap below to reactivate.",
-      parseMode: "HTML",
-      replyMarkup: {
-        inline_keyboard: [[{ text: "▶️ Resume Watcher", callback_data: "cmd:resume" }]],
-      },
-    });
-    return;
-  }
-
-  if (data === "cmd:resume") {
-    s.watching = true;
-    schedule(0);
-    pushEvent("watch_started", "ok", "Watcher resumed via Telegram");
-    await answerCallbackQuery({ botToken: token, callbackQueryId, text: "Watcher resumed" });
-    await sendTelegram({
-      botToken: token,
-      chatId,
-      text: `▶️ <b>Watcher Resumed</b> for pincode <b>${s.config.pincode}</b>.`,
-      parseMode: "HTML",
-      replyMarkup: {
-        inline_keyboard: [
-          [{ text: "📊 Check Status", callback_data: "cmd:status" }],
-          [{ text: "📦 View Stock", callback_data: "cmd:stock" }],
-        ],
-      },
-    });
-    return;
-  }
-
-  await answerCallbackQuery({ botToken: token, callbackQueryId });
-}
-
-// Auto-start poller on module load if configured
-if (typeof process !== "undefined") {
-  setTimeout(() => ensureTelegramPoller(), 1000);
 }

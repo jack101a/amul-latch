@@ -1,6 +1,5 @@
 export const AMUL_ORIGIN = "https://shop.amul.com";
 export const AMUL_STORE_ID = "62fa94df8c13af2e242eba16";
-export const TELEGRAM_ORIGIN = "https://api.telegram.org";
 export const CALLMEBOT_ORIGIN = "https://api.callmebot.com";
 
 export const EXTERNAL_DOMAINS = [
@@ -9,12 +8,8 @@ export const EXTERNAL_DOMAINS = [
     why: "Official Amul shop — session, pincode, stock, cart, and checkout",
   },
   {
-    host: "api.telegram.org",
-    why: "Telegram Bot API — restock and payment notifications only",
-  },
-  {
     host: "api.callmebot.com",
-    why: "CallMeBot API — WhatsApp restock and payment notifications without account access",
+    why: "CallMeBot API — WhatsApp alerts without requiring account access or QR scan",
   },
 ] as const;
 
@@ -44,7 +39,6 @@ export type EventKind =
   | "payment_required"
   | "order_success"
   | "order_failed"
-  | "telegram"
   | "whatsapp"
   | "error";
 
@@ -63,9 +57,6 @@ export type AppConfig = {
   autoOrder: boolean;
   orderIfAlreadyInStock: boolean;
   soundEnabled: boolean;
-  telegramEnabled: boolean;
-  telegramBotToken: string;
-  telegramChatId: string;
   whatsappEnabled: boolean;
   whatsappPhone: string;
   whatsappApiKey: string;
@@ -177,9 +168,6 @@ export const DEFAULT_CONFIG: AppConfig = {
   autoOrder: false,
   orderIfAlreadyInStock: false,
   soundEnabled: true,
-  telegramEnabled: false,
-  telegramBotToken: "",
-  telegramChatId: "",
   whatsappEnabled: false,
   whatsappPhone: "",
   whatsappApiKey: "",

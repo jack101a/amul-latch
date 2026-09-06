@@ -10,7 +10,6 @@ import {
   startCheckout,
   startWatcher,
   stopWatcher,
-  testTelegram,
   testWhatsApp,
   tickWatcher,
   verifySessionCookie,
@@ -116,7 +115,7 @@ export function LatchDashboard() {
         setConfig(next);
         setPinInput(next.pincode);
 
-        // Sync stored config (pincode, Telegram token, settings) to server runtime
+        // Sync stored config (pincode, WhatsApp settings, etc.) to server runtime
         void syncServerConfig({ data: { config: next } }).catch(() => undefined);
 
         // Sync stored session cookie to server runtime so server memory isn't empty
@@ -579,27 +578,6 @@ export function LatchDashboard() {
     }
   }
 
-  async function sendTg() {
-    setBusy("tg");
-    try {
-      const result = await testTelegram({
-        data: { botToken: config.telegramBotToken, chatId: config.telegramChatId },
-      });
-      if (result.ok) {
-        if (result.chatId && !config.telegramChatId) {
-          patch({ telegramChatId: result.chatId });
-        }
-        toast.success("Telegram test sent");
-      } else {
-        toast.error(result.error || "Telegram failed");
-      }
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Telegram failed");
-    } finally {
-      setBusy(null);
-    }
-  }
-
   async function sendWhatsAppTest() {
     setBusy("whatsapp");
     try {
@@ -845,7 +823,6 @@ export function LatchDashboard() {
             <div className="flex items-center gap-2">
               {config.autoOrder ? <Badge variant="paper">Auto-order</Badge> : <Badge>Notify only</Badge>}
               {config.whatsappEnabled ? <Badge variant="stock">WhatsApp</Badge> : null}
-              {config.telegramEnabled ? <Badge variant="stock">Telegram</Badge> : null}
             </div>
           </div>
 
@@ -916,8 +893,6 @@ export function LatchDashboard() {
         onOpenChange={setSettingsOpen}
         config={config}
         onChange={patch}
-        onTestTelegram={() => void sendTg()}
-        telegramBusy={busy === "tg"}
         onTestWhatsApp={() => void sendWhatsAppTest()}
         whatsappBusy={busy === "whatsapp"}
         userProfile={hasActiveCookie ? snap?.userProfile : null}

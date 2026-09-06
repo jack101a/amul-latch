@@ -11,9 +11,9 @@ services:
       - PORT=8082
       - HOST=0.0.0.0
       - PINCODE=
-      - TELEGRAM_ENABLED=false
-      - TELEGRAM_BOT_TOKEN=
-      - TELEGRAM_CHAT_ID=
+      - WHATSAPP_ENABLED=false
+      - WHATSAPP_PHONE=
+      - WHATSAPP_APIKEY=
       - AUTO_ORDER=false
       - ORDER_IF_ALREADY_IN_STOCK=false
     deploy:

@@ -25,7 +25,7 @@ High-demand products in Amul’s protein catalog—such as Amul Whey Protein, Hi
 - **🛡️ Strict Non-Custodial Safety Guarantee:**
   - **Latch NEVER handles, requests, or stores UPI PINs, CVVs, passwords, or bank OTPs.**
   - Checkout strictly halts at the final payment approval screen, allowing you to safely approve the transaction on your UPI app (GPay, PhonePe, Paytm, Cred).
-- **📢 Telegram Push Alerts:** Instant restock notifications, status summaries, and direct payment links pushed to your private Telegram bot.
+- **📢 WhatsApp Push Alerts:** Instant restock notifications and checkout payment links pushed to your phone via CallMeBot.
 - **🔒 Local-First Privacy:** All settings and tokens stay in your browser and local process memory. Zero third-party tracking.
 - **🐳 100% Docker-Ready:** Ready to deploy via Docker and Docker Compose on any VPS, home lab, Synology NAS, or Raspberry Pi.
 
@@ -103,10 +103,9 @@ Open ⚙️ **Desk settings**:
 - **Option B: 1-Click Bookmarklet** — Drag the bookmarklet link to your browser bookmarks bar, browse to [shop.amul.com](https://shop.amul.com), and click it to auto-sync.
 - **Option C: Cookie Paste** — Paste your `jsessionid` directly from your browser's cookie storage.
 
-### 4. (Optional) Configure Telegram Alerts
-1. Create a bot using [@BotFather](https://t.me/botfather) and copy your **Bot Token**.
-2. Retrieve your numeric **Chat ID** using [@userinfobot](https://t.me/userinfobot).
-3. In Latch **Desk settings**, toggle **Telegram Alerts** ON, enter your credentials, and click **Send test message**.
+### 4. (Optional) Configure WhatsApp Alerts
+1. Obtain your free personal API key from CallMeBot on WhatsApp.
+2. In Latch **Desk settings**, toggle **WhatsApp Alerts** ON, enter your phone number (+country code) and API key, and click **Send test WhatsApp message**.
 
 ### 5. Start Watching
 Click **Start watching** in the top header. The desk will enter an active polling loop, showing countdowns to the next check, tracking inventory changes, and recording restock events in the live **Activity** feed.
@@ -122,9 +121,9 @@ Latch can be configured either through the UI or via environment variables (usef
 | `PORT` | `8082` | HTTP port the server binds to |
 | `HOST` | `0.0.0.0` | Network interface to listen on |
 | `PINCODE` | `""` | Default 6-digit Indian delivery PIN code |
-| `TELEGRAM_ENABLED` | `false` | Enable or disable Telegram notifications |
-| `TELEGRAM_BOT_TOKEN` | `""` | Telegram Bot API token from @BotFather |
-| `TELEGRAM_CHAT_ID` | `""` | Target Telegram numeric chat/channel ID |
+| `WHATSAPP_ENABLED` | `false` | Enable or disable WhatsApp notifications |
+| `WHATSAPP_PHONE` | `""` | Phone number with country code (e.g. +919876543210) |
+| `WHATSAPP_APIKEY` | `""` | CallMeBot personal API key |
 | `POLL_MIN_MS` | `6000` | Minimum polling interval (ms) |
 | `POLL_MAX_MS` | `40000` | Maximum polling interval with backoff (ms) |
 | `AUTO_ORDER` | `false` | Automatically trigger checkout on restock |
