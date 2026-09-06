@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from "react";
 import {
   AlertTriangle,
   ArrowLeft,
+  BellRing,
   Check,
   CheckCircle2,
   Copy,
@@ -10,10 +11,12 @@ import {
   Laptop,
   LoaderCircle,
   Phone,
+  Radio,
   RefreshCw,
   Smartphone,
   Sparkles,
   Volume2,
+  VolumeX,
   XCircle,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -29,6 +32,11 @@ import {
   submitLoginOtp,
 } from "@/lib/amul/actions";
 import { playRestockChime } from "@/lib/audio/chime";
+import { startRestockAlarm, stopRestockAlarm } from "@/lib/audio/alarm";
+import {
+  checkNotificationSupport,
+  requestNotificationPermission,
+} from "@/lib/notifications/browser-notification";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -85,14 +93,50 @@ export function SettingsDialog({
   const [isMobile, setIsMobile] = useState(false);
   const [showAndroidGuide, setShowAndroidGuide] = useState(false);
 
+  const [pushPermission, setPushPermission] = useState<NotificationPermission | "unsupported">("default");
+  const [alarmTesting, setAlarmTesting] = useState(false);
+
   useEffect(() => {
     if (typeof window !== "undefined") {
       setOrigin(window.location.origin);
       const mobile = /android|iphone|ipad|mobile/i.test(navigator.userAgent);
       setIsMobile(mobile);
       if (mobile) setShowAndroidGuide(true);
+      const status = checkNotificationSupport();
+      setPushPermission(status.permission);
     }
   }, []);
+
+  const handleTestAlarm = () => {
+    if (alarmTesting) {
+      stopRestockAlarm();
+      setAlarmTesting(false);
+      toast.info("Alarm test stopped");
+      return;
+    }
+    setAlarmTesting(true);
+    startRestockAlarm(4000);
+    toast.success("🚨 Playing 4-second test restock alarm...");
+    window.setTimeout(() => {
+      setAlarmTesting(false);
+    }, 4000);
+  };
+
+  const handleTogglePush = async (enable: boolean) => {
+    if (enable && pushPermission !== "granted") {
+      const res = await requestNotificationPermission();
+      setPushPermission(res);
+      if (res === "granted") {
+        onChange({ browserNotificationsEnabled: true });
+        toast.success("Browser push notifications enabled!");
+      } else {
+        onChange({ browserNotificationsEnabled: false });
+        toast.error("Browser notification permission was not granted.");
+      }
+    } else {
+      onChange({ browserNotificationsEnabled: enable });
+    }
+  };
 
   const debounceTimer = useRef<NodeJS.Timeout | null>(null);
 
@@ -833,32 +877,124 @@ export function SettingsDialog({
 
         <Separator />
 
-        {/* Audio Alerts */}
-        <section className="flex flex-col gap-3">
-          <div className="flex items-center justify-between gap-4">
-            <div className="flex flex-col gap-0.5">
-              <p className="text-sm font-medium text-foreground">Restock audio alert</p>
-              <p className="text-xs text-muted-foreground">
-                Plays a subtle chime when any watched SKU comes into stock.
-              </p>
-            </div>
-            <Switch
-              checked={config.soundEnabled ?? true}
-              onCheckedChange={(v) => onChange({ soundEnabled: v })}
-              aria-label="Restock audio chime"
-            />
+        {/* Restock Alarms & Notifications */}
+        <section className="flex flex-col gap-4">
+          <div className="flex items-center gap-2">
+            <h3 className="text-sm font-semibold text-foreground">Restock Alarms & Notifications</h3>
+            <Badge variant="stock" className="text-[10px] px-1.5 py-0 font-mono">
+              Live Radar
+            </Badge>
           </div>
-          <div className="flex items-center">
-            <Button
-              type="button"
-              variant="secondary"
-              size="sm"
-              onClick={() => playRestockChime()}
-              className="h-8 text-xs gap-1.5 text-foreground hover:text-foreground"
-            >
-              <Volume2 className="size-3.5 text-stock" />
-              <span>Test chime</span>
-            </Button>
+
+          {/* 1. Audible Siren Alarm */}
+          <div className="rounded-lg border border-border/70 bg-card/60 p-3 flex flex-col gap-2.5">
+            <div className="flex items-center justify-between gap-4">
+              <div className="flex flex-col gap-0.5">
+                <p className="text-xs font-medium text-foreground flex items-center gap-1.5">
+                  <BellRing className="size-3.5 text-stock" />
+                  <span>Audible Restock Siren Alarm</span>
+                </p>
+                <p className="text-[11px] text-muted-foreground leading-relaxed">
+                  Sounds an urgent, repeating radar siren when any watched SKU comes into stock until silenced.
+                </p>
+              </div>
+              <Switch
+                checked={config.alarmEnabled ?? true}
+                onCheckedChange={(v) => onChange({ alarmEnabled: v })}
+                aria-label="Restock siren alarm"
+              />
+            </div>
+            <div className="flex items-center gap-2 pt-1 border-t border-border/40">
+              <Button
+                type="button"
+                variant={alarmTesting ? "destructive" : "secondary"}
+                size="sm"
+                onClick={handleTestAlarm}
+                className={cn(
+                  "h-7 text-[11px] font-mono gap-1.5 cursor-pointer",
+                  alarmTesting && "animate-pulse"
+                )}
+              >
+                {alarmTesting ? <VolumeX className="size-3" /> : <BellRing className="size-3 text-stock" />}
+                <span>{alarmTesting ? "Silence Test Siren" : "Test Siren (4s)"}</span>
+              </Button>
+            </div>
+          </div>
+
+          {/* 2. Subtle Background Chime */}
+          <div className="rounded-lg border border-border/70 bg-card/60 p-3 flex flex-col gap-2.5">
+            <div className="flex items-center justify-between gap-4">
+              <div className="flex flex-col gap-0.5">
+                <p className="text-xs font-medium text-foreground flex items-center gap-1.5">
+                  <Volume2 className="size-3.5 text-muted-foreground" />
+                  <span>Soft Polling Chime</span>
+                </p>
+                <p className="text-[11px] text-muted-foreground leading-relaxed">
+                  Plays a subtle acoustic ping for routine inventory updates and status changes.
+                </p>
+              </div>
+              <Switch
+                checked={config.soundEnabled ?? true}
+                onCheckedChange={(v) => onChange({ soundEnabled: v })}
+                aria-label="Restock audio chime"
+              />
+            </div>
+            <div className="flex items-center gap-2 pt-1 border-t border-border/40">
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                onClick={() => playRestockChime()}
+                className="h-7 text-[11px] font-mono gap-1.5 text-foreground hover:text-foreground cursor-pointer"
+              >
+                <Volume2 className="size-3 text-stock" />
+                <span>Test Chime</span>
+              </Button>
+            </div>
+          </div>
+
+          {/* 3. Browser Push Notifications */}
+          <div className="rounded-lg border border-border/70 bg-card/60 p-3 flex flex-col gap-2.5">
+            <div className="flex items-center justify-between gap-4">
+              <div className="flex flex-col gap-0.5">
+                <p className="text-xs font-medium text-foreground flex items-center gap-1.5">
+                  <Radio className="size-3.5 text-stock" />
+                  <span>Browser Push Notifications</span>
+                </p>
+                <p className="text-[11px] text-muted-foreground leading-relaxed">
+                  Sends system desktop and mobile alert banners even when this tab is hidden or in the background.
+                </p>
+              </div>
+              <Switch
+                checked={config.browserNotificationsEnabled ?? true}
+                onCheckedChange={handleTogglePush}
+                aria-label="Browser push notifications"
+              />
+            </div>
+
+            <div className="flex items-center justify-between gap-2 pt-1 border-t border-border/40 text-[11px]">
+              <span className="text-muted-foreground flex items-center gap-1">
+                Permission:{" "}
+                {pushPermission === "granted" ? (
+                  <span className="text-stock font-semibold">Granted</span>
+                ) : pushPermission === "denied" ? (
+                  <span className="text-destructive font-semibold">Blocked in browser</span>
+                ) : (
+                  <span className="text-warn font-semibold">Prompt on trigger</span>
+                )}
+              </span>
+              {pushPermission !== "granted" && pushPermission !== "unsupported" ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => void handleTogglePush(true)}
+                  className="h-6 px-2 text-[10px] font-mono border-border hover:bg-muted cursor-pointer"
+                >
+                  Request Permission
+                </Button>
+              ) : null}
+            </div>
           </div>
         </section>
 

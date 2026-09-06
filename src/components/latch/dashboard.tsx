@@ -46,6 +46,13 @@ import {
   productPageUrl,
 } from "@/lib/amul/types";
 import { playRestockChime } from "@/lib/audio/chime";
+import {
+  startRestockAlarm,
+  stopRestockAlarm,
+  onAlarmStateChange,
+} from "@/lib/audio/alarm";
+import { sendRestockNotification } from "@/lib/notifications/browser-notification";
+import { startTabTitleFlash, stopTabTitleFlash } from "@/lib/notifications/tab-flasher";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -53,6 +60,7 @@ import { Label } from "@/components/ui/label";
 import { ActivityLog } from "./activity-log";
 import { ProductCard } from "./product-card";
 import { SettingsDialog } from "./settings-dialog";
+import { RestockAlarmBanner } from "./restock-alarm-banner";
 import { cn } from "@/lib/utils";
 
 const STANDARD_HUBS = [
@@ -112,6 +120,8 @@ export function LatchDashboard() {
   const [filter, setFilter] = useState<"all" | "watched" | "value" | "instock" | "out">("all");
   const [sort, setSort] = useState<SortMode>("default");
   const [mobileTab, setMobileTab] = useState<"catalog" | "watched" | "activity">("catalog");
+  const [activeRestockProducts, setActiveRestockProducts] = useState<AmulProduct[]>([]);
+  const [isAlarmActive, setIsAlarmActive] = useState(false);
   const [now, setNow] = useState(() => Date.now());
 
   const resumed = useRef(false);
@@ -336,6 +346,22 @@ export function LatchDashboard() {
   }, [snap?.watching]);
 
   useEffect(() => {
+    return onAlarmStateChange((active) => {
+      setIsAlarmActive(active);
+      if (!active) {
+        stopTabTitleFlash();
+      }
+    });
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      stopRestockAlarm();
+      stopTabTitleFlash();
+    };
+  }, []);
+
+  useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (
         e.key === "/" &&
@@ -346,8 +372,15 @@ export function LatchDashboard() {
         searchInputRef.current?.focus();
       }
       if (e.key === "Escape") {
-        if (activityDrawerOpen) setActivityDrawerOpen(false);
-        else if (query) setQuery("");
+        if (isAlarmActive) {
+          stopRestockAlarm();
+          stopTabTitleFlash();
+          setIsAlarmActive(false);
+        } else if (activityDrawerOpen) {
+          setActivityDrawerOpen(false);
+        } else if (query) {
+          setQuery("");
+        }
       }
       if (
         (e.key === "a" || e.key === "A") &&
@@ -360,7 +393,7 @@ export function LatchDashboard() {
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [activityDrawerOpen, query]);
+  }, [activityDrawerOpen, query, isAlarmActive]);
 
   const patch = (partial: Partial<AppConfig>) => {
     setConfig((c) => {
@@ -424,26 +457,100 @@ export function LatchDashboard() {
     }
 
     const watchedSkuSet = new Set(config.products.map((p) => p.sku));
+    const newlyRestocked: AmulProduct[] = [];
+
     for (const p of products) {
       if (watchedSkuSet.has(p.sku)) {
         const wasInStock = prevStockRef.current.get(p.sku);
         if (wasInStock === false && p.inStock) {
           restockDetected = true;
+          newlyRestocked.push(p);
         }
       }
       prevStockRef.current.set(p.sku, p.inStock);
     }
 
     if (restockDetected) {
+      if (newlyRestocked.length === 0) {
+        for (const p of products) {
+          if (watchedSkuSet.has(p.sku) && p.inStock) {
+            newlyRestocked.push(p);
+          }
+        }
+      }
+
+      if (newlyRestocked.length > 0) {
+        setActiveRestockProducts(newlyRestocked);
+      }
+
       const currentTime = Date.now();
       if (currentTime - lastChimeTime.current > 2000) {
         lastChimeTime.current = currentTime;
-        if (config.soundEnabled) {
+
+        const alertItems = newlyRestocked.length > 0 ? newlyRestocked : products.filter((p) => p.inStock);
+
+        // 1. Audible Siren Alarm or Soft Chime
+        if (config.alarmEnabled ?? true) {
+          startRestockAlarm();
+          setIsAlarmActive(true);
+        } else if (config.soundEnabled) {
           playRestockChime();
         }
+
+        // 2. Tab Title Flashing
+        if (alertItems[0]) {
+          startTabTitleFlash(alertItems[0].name);
+        }
+
+        // 3. Browser Push Notification
+        if ((config.browserNotificationsEnabled ?? true) && alertItems.length > 0) {
+          sendRestockNotification(alertItems, {
+            onClick: () => {
+              window.focus();
+              setFilter("watched");
+            },
+          });
+        }
+
+        toast.success(`🚨 RESTOCK ALARM: ${alertItems.length} item(s) back in stock!`, {
+          duration: 10000,
+        });
       }
     }
-  }, [snap, products, config.products, config.soundEnabled]);
+  }, [snap, products, config.products, config.soundEnabled, config.alarmEnabled, config.browserNotificationsEnabled]);
+
+  const handleSilenceAlarm = () => {
+    stopRestockAlarm();
+    stopTabTitleFlash();
+    setIsAlarmActive(false);
+  };
+
+  const handleDismissAlarmBanner = () => {
+    handleSilenceAlarm();
+    setActiveRestockProducts([]);
+  };
+
+  const triggerTestAlarm = () => {
+    const inStockList = products.filter((p) => p.inStock);
+    const testItems = inStockList.length > 0 ? inStockList.slice(0, 3) : products.slice(0, 2);
+    if (!testItems.length) {
+      toast.info("Load a delivery pincode first to preview restock alarm with real SKUs.");
+      return;
+    }
+    setActiveRestockProducts(testItems);
+    startRestockAlarm(8000);
+    setIsAlarmActive(true);
+    startTabTitleFlash(testItems[0]?.name || "Amul Whey");
+
+    if (config.browserNotificationsEnabled ?? true) {
+      sendRestockNotification(testItems, {
+        onClick: () => {
+          window.focus();
+        },
+      });
+    }
+    toast.success("🚨 Restock alarm triggered! (Ringing for 8s or click Silence)");
+  };
 
   const visible = useMemo(() => {
     let list = products.filter((p) => {
@@ -727,6 +834,22 @@ export function LatchDashboard() {
 
           {/* Header Actions */}
           <div className="flex items-center gap-1.5 sm:gap-2">
+            {/* Urgent Silence Alarm Button */}
+            {isAlarmActive ? (
+              <Button
+                type="button"
+                variant="destructive"
+                size="sm"
+                onClick={handleSilenceAlarm}
+                className="h-9 px-2.5 sm:px-3 bg-destructive hover:bg-destructive/90 text-white font-mono text-xs font-bold gap-1.5 animate-pulse shadow-md cursor-pointer shrink-0"
+                title="Silence ringing restock alarm (Shortcut: Esc)"
+              >
+                <VolumeX className="size-4 animate-bounce" />
+                <span className="hidden sm:inline">SILENCE ALARM</span>
+                <span className="sm:hidden">SILENCE</span>
+              </Button>
+            ) : null}
+
             {/* Restock Sound Chime Toggle */}
             <button
               type="button"
@@ -823,6 +946,23 @@ export function LatchDashboard() {
 
       {/* Main Body */}
       <main className="mx-auto max-w-7xl w-full px-4 sm:px-6 pt-5 sm:pt-6 flex flex-col gap-6">
+        {/* Restock Alarm Alert Banner */}
+        {activeRestockProducts.length > 0 ? (
+          <RestockAlarmBanner
+            products={activeRestockProducts}
+            isRinging={isAlarmActive}
+            onSilence={handleSilenceAlarm}
+            onDismiss={handleDismissAlarmBanner}
+            onInstantCheckout={(product) => {
+              handleSilenceAlarm();
+              void checkout(product.sku);
+            }}
+            onSelectProduct={(sku) => {
+              const el = document.getElementById(`product-${sku}`);
+              el?.scrollIntoView({ behavior: "smooth", block: "center" });
+            }}
+          />
+        ) : null}
         {/* Payment Required Alert Banner */}
         {snap?.checkout && snap.checkout.status !== "failed" ? (
           <PaymentBanner
@@ -917,9 +1057,19 @@ export function LatchDashboard() {
                 <Zap className="size-3 text-stock" />
                 Console Metrics
               </span>
-              <span className="text-[11px] font-mono text-muted-foreground">
-                {snap?.lastTickAt ? `Updated ${formatDistanceToNow(new Date(snap.lastTickAt), { addSuffix: true })}` : "Standby"}
-              </span>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={triggerTestAlarm}
+                  className="text-[10px] font-mono text-muted-foreground hover:text-foreground border border-border/60 hover:border-border bg-muted/40 px-2 py-0.5 rounded cursor-pointer transition-colors"
+                  title="Simulate an audible restock alarm with browser push notification"
+                >
+                  Test Alarm
+                </button>
+                <span className="text-[11px] font-mono text-muted-foreground">
+                  {snap?.lastTickAt ? `Updated ${formatDistanceToNow(new Date(snap.lastTickAt), { addSuffix: true })}` : "Standby"}
+                </span>
+              </div>
             </div>
 
             {/* 4 Precision Metric Cells */}

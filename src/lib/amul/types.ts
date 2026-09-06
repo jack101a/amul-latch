@@ -57,6 +57,8 @@ export type AppConfig = {
   autoOrder: boolean;
   orderIfAlreadyInStock: boolean;
   soundEnabled: boolean;
+  alarmEnabled: boolean;
+  browserNotificationsEnabled: boolean;
   whatsappEnabled: boolean;
   whatsappPhone: string;
   whatsappApiKey: string;
@@ -168,6 +170,8 @@ export const DEFAULT_CONFIG: AppConfig = {
   autoOrder: false,
   orderIfAlreadyInStock: false,
   soundEnabled: true,
+  alarmEnabled: true,
+  browserNotificationsEnabled: true,
   whatsappEnabled: false,
   whatsappPhone: "",
   whatsappApiKey: "",
