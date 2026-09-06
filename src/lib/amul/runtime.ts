@@ -1,6 +1,6 @@
 import { AmulClient } from "./client";
 import { runCheckout } from "./checkout";
-import { sendTelegram } from "./telegram";
+import { sendTelegram, autoDetectTelegramChatId } from "./telegram";
 import { sendCallMeBot } from "./callmebot";
 import {
   DEFAULT_CONFIG,
@@ -225,14 +225,29 @@ export function disconnectSession(): WatchSnapshot {
   return getSnapshot();
 }
 
-export async function pingTelegram(botToken: string, chatId: string) {
+export async function pingTelegram(botToken: string, chatId?: string) {
   const result = await sendTelegram({
     botToken,
     chatId,
     text: "Latch is connected. You will get restock, checkout, and payment alerts here. Latch never asks for UPI PIN, OTP, or CVV.",
   });
-  if (result.ok) pushEvent("telegram", "ok", "Telegram test sent");
-  else pushEvent("telegram", "error", "Telegram test failed", result.error);
+  if (result.ok) {
+    if (result.chatId && !chatId) {
+      applyConfig({ telegramChatId: result.chatId });
+    }
+    pushEvent("telegram", "ok", "Telegram test sent");
+  } else {
+    pushEvent("telegram", "error", "Telegram test failed", result.error);
+  }
+  return result;
+}
+
+export async function detectTelegramChat(botToken: string) {
+  const result = await autoDetectTelegramChatId(botToken);
+  if (result.ok && result.chatId) {
+    applyConfig({ telegramChatId: result.chatId });
+    pushEvent("telegram", "ok", `Auto-detected Telegram Chat ID: ${result.chatId}`);
+  }
   return result;
 }
 

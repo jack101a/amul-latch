@@ -27,6 +27,7 @@ import {
   verifySessionCookie,
   requestLoginOtp,
   submitLoginOtp,
+  detectTelegramChatId,
 } from "@/lib/amul/actions";
 import { playRestockChime } from "@/lib/audio/chime";
 import { Badge } from "@/components/ui/badge";
@@ -88,6 +89,7 @@ export function SettingsDialog({
   const [origin, setOrigin] = useState("");
   const [isMobile, setIsMobile] = useState(false);
   const [showAndroidGuide, setShowAndroidGuide] = useState(false);
+  const [detectingTg, setDetectingTg] = useState(false);
 
   useEffect(() => {
     if (typeof window !== "undefined") {
@@ -263,6 +265,29 @@ export function SettingsDialog({
       toast.error("Failed to disconnect session");
     } finally {
       setDisconnecting(false);
+    }
+  };
+
+  const handleAutoDetectChatId = async () => {
+    const token = config.telegramBotToken.trim();
+    if (!token) {
+      toast.error("Enter your Telegram Bot Token first");
+      return;
+    }
+    setDetectingTg(true);
+    try {
+      const res = await detectTelegramChatId({ data: { botToken: token } });
+      if (res.ok && res.chatId) {
+        onChange({ telegramChatId: res.chatId });
+        const name = res.firstName || res.userName ? ` (${res.firstName || `@${res.userName}`})` : "";
+        toast.success(`Chat ID detected: ${res.chatId}${name}`);
+      } else {
+        toast.error(res.error || "Could not detect Chat ID");
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to detect Telegram Chat ID");
+    } finally {
+      setDetectingTg(false);
     }
   };
 
@@ -997,25 +1022,47 @@ export function SettingsDialog({
               <Input
                 id="bot-token"
                 type="password"
+                placeholder="123456789:ABCdefGHI..."
                 value={config.telegramBotToken}
                 onChange={(e) => onChange({ telegramBotToken: e.target.value })}
               />
             </div>
             <div className="flex flex-col gap-1.5">
-              <Label htmlFor="chat">Chat id</Label>
+              <div className="flex items-center justify-between">
+                <Label htmlFor="chat">Chat id</Label>
+                <button
+                  type="button"
+                  onClick={handleAutoDetectChatId}
+                  disabled={detectingTg || !config.telegramBotToken.trim()}
+                  className="inline-flex items-center gap-1 text-[11px] font-medium text-stock hover:text-stock/80 disabled:text-muted-foreground transition-colors cursor-pointer disabled:cursor-not-allowed"
+                  title="Auto-detect Chat ID from recent bot messages or /start"
+                >
+                  {detectingTg ? (
+                    <LoaderCircle className="h-3 w-3 animate-spin" />
+                  ) : (
+                    <Sparkles className="h-3 w-3" />
+                  )}
+                  Auto-detect
+                </button>
+              </div>
               <Input
                 id="chat"
+                placeholder="e.g. 123456789 (or click auto-detect)"
                 value={config.telegramChatId}
                 onChange={(e) => onChange({ telegramChatId: e.target.value })}
               />
             </div>
           </div>
+          <p className="text-[11px] text-muted-foreground leading-relaxed">
+            Open your bot in Telegram, tap <span className="font-mono text-foreground font-medium">Start</span> (or send a message), then click <span className="text-stock font-medium">Auto-detect</span>.
+          </p>
           <Button
             type="button"
             variant="secondary"
             onClick={onTestTelegram}
-            disabled={telegramBusy || !config.telegramBotToken || !config.telegramChatId}
+            disabled={telegramBusy || !config.telegramBotToken.trim()}
           >
+            {telegramBusy ? <LoaderCircle className="h-4 w-4 animate-spin mr-2" /> : null}
             Send test message
           </Button>
         </section>

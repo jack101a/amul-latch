@@ -9,6 +9,7 @@ import {
   fetchCatalog,
   getSnapshot,
   pingTelegram,
+  detectTelegramChat,
   pingWhatsApp,
   setVerifiedProfile,
   startWatch,
@@ -91,9 +92,15 @@ export const dismissCheckout = createServerFn({ method: "POST" }).handler(async 
 });
 
 export const testTelegram = createServerFn({ method: "POST" })
-  .validator(z.object({ botToken: z.string(), chatId: z.string() }))
+  .validator(z.object({ botToken: z.string(), chatId: z.string().optional() }))
   .handler(async ({ data }) => {
     return pingTelegram(data.botToken, data.chatId);
+  });
+
+export const detectTelegramChatId = createServerFn({ method: "POST" })
+  .validator(z.object({ botToken: z.string() }))
+  .handler(async ({ data }) => {
+    return detectTelegramChat(data.botToken);
   });
 
 export const testWhatsApp = createServerFn({ method: "POST" })

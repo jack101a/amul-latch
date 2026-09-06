@@ -575,8 +575,14 @@ export function LatchDashboard() {
       const result = await testTelegram({
         data: { botToken: config.telegramBotToken, chatId: config.telegramChatId },
       });
-      if (result.ok) toast.success("Telegram test sent");
-      else toast.error(result.error || "Telegram failed");
+      if (result.ok) {
+        if (result.chatId && !config.telegramChatId) {
+          patch({ telegramChatId: result.chatId });
+        }
+        toast.success("Telegram test sent");
+      } else {
+        toast.error(result.error || "Telegram failed");
+      }
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Telegram failed");
     } finally {
