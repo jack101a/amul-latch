@@ -111,12 +111,18 @@ export type ActivityEvent = {
 export type CheckoutAttempt = {
   sku: string;
   name: string;
+  quantity?: number;
+  price?: number;
   startedAt: string;
   status: "running" | "awaiting_payment" | "success" | "failed" | "blocked";
   message: string;
   paymentUrl?: string;
   cartId?: string;
   shopUrl?: string;
+  recipientName?: string;
+  recipientPhone?: string;
+  addressSummary?: string;
+  paymentMethodName?: string;
 };
 
 export type UserProfileInfo = {

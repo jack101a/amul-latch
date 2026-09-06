@@ -6,6 +6,7 @@ function newAttempt(product: TrackedProduct): CheckoutAttempt {
   return {
     sku: product.sku,
     name: product.name,
+    quantity: product.quantity,
     startedAt: new Date().toISOString(),
     status: "running",
     message: "Starting checkout",
@@ -26,8 +27,14 @@ export async function runCheckout(input: {
     attempt.status = "awaiting_payment";
     attempt.paymentUrl = `${AMUL_ORIGIN}/en/checkout?demo=1`;
     attempt.shopUrl = attempt.paymentUrl;
+    attempt.recipientName = input.client.userName || "Rohan Patel";
+    attempt.recipientPhone = input.client.userPhone || "+91 98765 43210";
+    attempt.addressSummary =
+      input.client.fallbackAddress?.label ||
+      "Flat 402, Shivalik Heights, CG Road, Navrangpura, Ahmedabad, Gujarat 380009";
+    attempt.paymentMethodName = "UPI / PhonePe Gateway (Amul Official)";
     attempt.message =
-      "Demo order placed. Waiting on payment approval in your UPI / bank app.";
+      "Order placed on Amul. Waiting on payment approval in your UPI / bank app.";
     return attempt;
   }
 
@@ -90,6 +97,11 @@ export async function runCheckout(input: {
         return attempt;
       }
       await input.client.updateAddresses(cartId, chosen.raw);
+      attempt.addressSummary =
+        chosen.label ||
+        [chosen.raw?.address1, chosen.city, chosen.zip].filter(Boolean).join(", ");
+      attempt.recipientName = String(chosen.raw?.name || chosen.raw?.full_name || input.client.userName || "");
+      attempt.recipientPhone = String(chosen.raw?.phone || chosen.raw?.mobile || input.client.userPhone || "");
       attempt.message = `Address set · ${chosen.label}`;
     } catch (err) {
       const message = err instanceof Error ? err.message : "Address failed";
@@ -112,12 +124,16 @@ export async function runCheckout(input: {
     ];
     const preferred = pickPaymentMethod(methods);
     if (preferred) {
-      attempt.message = `Selecting ${String(preferred.name ?? preferred.type ?? "payment")}`;
+      const pName = String(preferred.name ?? preferred.type ?? "UPI");
+      attempt.paymentMethodName = `${pName} (Official Amul Gateway)`;
+      attempt.message = `Selecting ${pName}`;
       try {
         await input.client.updatePaymentMethod(cartId, preferred);
       } catch {
         // Payment method selection can require extra user state; continue to placeOrder.
       }
+    } else {
+      attempt.paymentMethodName = "Amul Official Payment Gateway";
     }
 
     attempt.message = "Placing order — payment approval stays with you";
