@@ -33,15 +33,28 @@ const PRODUCT_FIELDS = [
   "name",
   "brand",
   "categories",
-  "price",
-  "images",
+  "collections",
+  "alias",
   "sku",
+  "price",
+  "compare_price",
+  "original_price",
+  "images",
+  "metafields",
+  "discounts",
+  "catalog_only",
+  "is_catalog",
+  "seller",
   "available",
   "inventory_quantity",
+  "net_quantity",
+  "num_reviews",
+  "avg_rating",
   "inventory_low_stock_quantity",
   "inventory_allow_out_of_stock",
-  "alias",
-  "seller",
+  "default_variant",
+  "variants",
+  "lp_seller_ids",
 ] as const;
 
 type RawProduct = {
@@ -50,12 +63,14 @@ type RawProduct = {
   alias: string;
   sku: string;
   price?: number;
+  compare_price?: number;
   available?: number;
   inventory_quantity?: number;
   inventory_low_stock_quantity?: number;
   inventory_allow_out_of_stock?: string | number | boolean;
   seller_id?: string;
   seller?: { _id?: string } | string;
+  lp_seller_ids?: string[];
   images?: Array<{ image?: string }>;
 };
 

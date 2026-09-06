@@ -138,7 +138,9 @@ export async function fetchCatalog(pincode: string): Promise<{
 }> {
   const s = state();
   const client = await ensureClient(pincode, s.config.sessionCookie);
-  const substore = client.substore ?? (await client.setPincode(pincode));
+  const substore =
+    (client.substore && client.substore.pincode === pincode ? client.substore : null) ??
+    (await client.setPincode(pincode));
   const products = await client.listProteinProducts();
   s.substore = substore;
   s.products = products;
