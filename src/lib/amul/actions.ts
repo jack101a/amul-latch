@@ -32,8 +32,6 @@ const configSchema = z.object({
   autoOrder: z.boolean(),
   orderIfAlreadyInStock: z.boolean(),
   soundEnabled: z.boolean().optional(),
-  alarmEnabled: z.boolean().optional(),
-  browserNotificationsEnabled: z.boolean().optional(),
   whatsappEnabled: z.boolean().optional(),
   whatsappPhone: z.string().optional(),
   whatsappApiKey: z.string().optional(),

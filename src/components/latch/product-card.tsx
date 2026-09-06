@@ -29,7 +29,6 @@ export function ProductCard({
 
   return (
     <article
-      id={`product-${product.sku}`}
       className={cn(
         "group relative flex flex-col overflow-hidden rounded-xl bg-card border border-border/70 transition-all duration-200",
         "hover:border-border hover:shadow-[0_8px_24px_rgba(0,0,0,0.35)]",
