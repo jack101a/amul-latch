@@ -889,28 +889,51 @@ export function SettingsDialog({
             />
           </div>
 
-          <div className="rounded-lg border border-border/70 bg-muted/30 p-3 text-xs text-muted-foreground space-y-1.5">
+          <div className="rounded-lg border border-border/70 bg-muted/30 p-3 text-xs text-muted-foreground space-y-2">
             <div className="flex items-center justify-between">
               <span className="font-semibold text-foreground">30-Second Setup:</span>
               <a
-                href="https://wa.me/34644565349?text=I%20allow%20callmebot%20to%20send%20me%20messages"
+                href="https://www.callmebot.com/blog/free-api-whatsapp-messages/"
                 target="_blank"
                 rel="noreferrer"
                 className="inline-flex items-center gap-1 text-stock hover:underline font-mono text-[11px]"
               >
-                Open CallMeBot on WhatsApp <ExternalLink className="size-3" />
+                CallMeBot Live Status <ExternalLink className="size-3" />
               </a>
             </div>
-            <ol className="list-decimal list-inside space-y-1 pl-1 text-[11px] leading-relaxed">
+            <ol className="list-decimal list-inside space-y-1.5 pl-1 text-[11px] leading-relaxed">
               <li>
-                Tap the link above (or message CallMeBot on WhatsApp) with:{" "}
-                <code className="rounded bg-card px-1 py-0.5 font-mono text-foreground select-all">
-                  I allow callmebot to send me messages
-                </code>
+                Open WhatsApp chat with the bot (tap{" "}
+                <a
+                  href="https://wa.me/34623786449?text=I%20allow%20callmebot%20to%20send%20me%20messages"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-stock hover:underline font-semibold"
+                >
+                  Bot #1 (+34 623 78 64 49)
+                </a>{" "}
+                or{" "}
+                <a
+                  href="https://wa.me/34644565349?text=I%20allow%20callmebot%20to%20send%20me%20messages"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-stock hover:underline font-semibold"
+                >
+                  Bot #2 (+34 644 56 53 49)
+                </a>
+                ) and send:
+                <div className="mt-1">
+                  <code className="rounded bg-card px-1.5 py-0.5 font-mono text-foreground select-all border border-border/50">
+                    I allow callmebot to send me messages
+                  </code>
+                </div>
               </li>
-              <li>Wait ~15s for the bot to reply with your free <span className="text-foreground font-semibold">APIKEY</span>.</li>
+              <li>Wait ~15s for the bot to reply with your personal <span className="text-foreground font-semibold">APIKEY</span>.</li>
               <li>Enter your phone number and that API Key below, then click Test.</li>
             </ol>
+            <p className="text-[10px] text-muted-foreground/80 pt-1 border-t border-border/40 leading-normal">
+              *Note: CallMeBot periodically rotates bot numbers or pauses new registrations when capacity is full (showing +34*********). If neither bot responds within 2 minutes, check the Live Status link above for the newest active number.
+            </p>
           </div>
 
           <div className="grid gap-3 sm:grid-cols-2">
