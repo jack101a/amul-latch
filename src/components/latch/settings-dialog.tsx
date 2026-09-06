@@ -5,9 +5,11 @@ import {
   Copy,
   ExternalLink,
   KeyRound,
+  Laptop,
   LoaderCircle,
   Phone,
   RefreshCw,
+  Smartphone,
   Sparkles,
   Volume2,
   XCircle,
@@ -77,6 +79,18 @@ export function SettingsDialog({
   const [otpBusy, setOtpBusy] = useState(false);
   const [countdown, setCountdown] = useState(0);
   const [disconnecting, setDisconnecting] = useState(false);
+  const [origin, setOrigin] = useState("");
+  const [isMobile, setIsMobile] = useState(false);
+  const [showAndroidGuide, setShowAndroidGuide] = useState(false);
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      setOrigin(window.location.origin);
+      const mobile = /android|iphone|ipad|mobile/i.test(navigator.userAgent);
+      setIsMobile(mobile);
+      if (mobile) setShowAndroidGuide(true);
+    }
+  }, []);
 
   const debounceTimer = useRef<NodeJS.Timeout | null>(null);
 
@@ -217,7 +231,8 @@ export function SettingsDialog({
     }
   };
 
-  const bookmarkletHref = `javascript:(function(){const m=document.cookie.match(/jsessionid=([^;]+)/);if(m){window.open(location.origin.includes('amul.com')?'http://127.0.0.1:8082/?import_cookie='+encodeURIComponent(m[1]):alert('Please run this bookmarklet while browsing shop.amul.com!'))}else{alert('No active session found. Please log in on shop.amul.com first!')}})()`;
+  const latchOrigin = origin || (typeof window !== "undefined" ? window.location.origin : "http://127.0.0.1:8082");
+  const bookmarkletHref = `javascript:(function(){const m=document.cookie.match(/jsessionid=([^;]+)/i);if(m){const targetUrl='${latchOrigin}/?import_cookie='+encodeURIComponent(m[1]);if(location.origin.includes('amul.com')){try{const w=window.open(targetUrl,'_blank');if(!w||w.closed||typeof w.closed==='undefined'){window.location.href=targetUrl;}}catch(e){window.location.href=targetUrl;}}else{alert('Please run this bookmarklet while browsing shop.amul.com!');}}else{alert('No active session found. Please log in on shop.amul.com first!')}})()`;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -508,11 +523,108 @@ export function SettingsDialog({
                   <div className="flex flex-col gap-1">
                     <p className="font-medium text-foreground">1-Click Browser Sync</p>
                     <p className="text-[11px] text-muted-foreground leading-relaxed">
-                      Already logged into Amul in your browser? Sync your session with one click without typing or opening DevTools:
+                      Already logged into Amul in your browser? Sync your session with one click:
                     </p>
                   </div>
 
+                  {/* Mobile Advisory Card */}
+                  <div className="flex flex-col gap-2 rounded-lg border border-stock/30 bg-stock/10 p-3 text-xs">
+                    <div className="flex items-start gap-2.5">
+                      <Smartphone className="size-4 shrink-0 text-stock mt-0.5" />
+                      <div className="flex-1 space-y-1.5">
+                        <div className="flex items-center justify-between">
+                          <p className="font-medium text-foreground text-xs">Using Android or iPhone?</p>
+                          <Badge variant="stock" className="text-[10px] border border-stock/40 py-0 px-1.5 font-mono">
+                            Recommended
+                          </Badge>
+                        </div>
+                        <p className="text-[11px] text-muted-foreground leading-relaxed">
+                          Mobile browsers don't have a bookmark bar for drag-and-drop. The fastest way to sync on mobile is <strong>Phone OTP (Auto)</strong> — get SMS OTP and sign in directly!
+                        </p>
+                        <div className="pt-0.5 flex flex-wrap items-center gap-2">
+                          <Button
+                            type="button"
+                            size="sm"
+                            onClick={() => setActiveTab("otp")}
+                            className="h-7 text-xs bg-stock text-black font-semibold hover:bg-stock/90 transition-colors"
+                          >
+                            <Phone className="size-3 mr-1" />
+                            Switch to Phone OTP
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setShowAndroidGuide(!showAndroidGuide)}
+                            className="h-7 text-xs text-muted-foreground hover:text-foreground underline underline-offset-2"
+                          >
+                            {showAndroidGuide ? "Hide Android Chrome steps" : "How to run script on Android Chrome"}
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Android Chrome Step-by-Step Guide */}
+                  {showAndroidGuide && (
+                    <div className="flex flex-col gap-2 rounded bg-card p-3 border border-border/60 text-[11px]">
+                      <div className="flex items-center justify-between pb-1.5 border-b border-border/40">
+                        <p className="font-semibold text-foreground flex items-center gap-1.5">
+                          <Smartphone className="size-3.5 text-stock" />
+                          Android Chrome Setup (6 Steps):
+                        </p>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => {
+                            void navigator.clipboard.writeText(bookmarkletHref);
+                            toast.success("Sync script copied!");
+                          }}
+                          className="h-6 px-2 text-[10px] border-border/70 text-foreground"
+                        >
+                          <Copy className="size-3 mr-1" /> Copy Script
+                        </Button>
+                      </div>
+
+                      <ol className="space-y-1.5 text-muted-foreground list-decimal list-inside leading-relaxed text-[11px]">
+                        <li>
+                          Tap <strong className="text-foreground">Copy Script</strong> above.
+                        </li>
+                        <li>
+                          Open{" "}
+                          <a
+                            href="https://shop.amul.com"
+                            target="_blank"
+                            rel="noreferrer"
+                            className="text-stock underline font-medium"
+                          >
+                            shop.amul.com
+                          </a>{" "}
+                          in Chrome and ensure you are logged in.
+                        </li>
+                        <li>
+                          Tap Chrome menu (<strong>⋮</strong> three dots) → tap the <strong>⭐ Star</strong> to bookmark the page.
+                        </li>
+                        <li>
+                          Tap <strong>Edit</strong> on the bookmark popup (or open Chrome Menu → <strong>Bookmarks</strong> → tap <strong>⋮</strong> on the bookmark → <strong>Edit</strong>).
+                        </li>
+                        <li>
+                          Change Name to <code className="font-mono text-foreground font-semibold px-1 py-0.5 rounded bg-muted">sync</code>, delete the URL, and <strong className="text-foreground">Paste</strong> the copied script. Save it.
+                        </li>
+                        <li>
+                          While on <span className="text-foreground font-mono">shop.amul.com</span>, tap the Chrome URL bar, type <code className="font-mono text-foreground font-semibold px-1 py-0.5 rounded bg-muted">sync</code>, and tap the bookmark suggestion!
+                        </li>
+                      </ol>
+                    </div>
+                  )}
+
+                  {/* Desktop Browser Card */}
                   <div className="flex flex-col gap-2 rounded bg-card p-3 border border-border/40">
+                    <p className="text-[11px] font-medium text-foreground flex items-center gap-1.5">
+                      <Laptop className="size-3.5 text-muted-foreground" />
+                      Desktop Browsers (Chrome / Edge / Safari / Brave):
+                    </p>
                     <p className="text-[11px] text-muted-foreground font-mono">
                       <strong>Step 1:</strong> Drag this button to your Bookmarks Bar:
                     </p>
