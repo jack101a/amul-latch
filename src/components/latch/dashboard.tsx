@@ -1,6 +1,26 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { formatDistanceToNow } from "date-fns";
-import { ExternalLink, LoaderCircle, Search, Settings2, ShieldCheck, Square } from "lucide-react";
+import {
+  ArrowUpDown,
+  Bell,
+  Check,
+  CheckCircle2,
+  ChevronDown,
+  ExternalLink,
+  Filter,
+  LoaderCircle,
+  MapPin,
+  Radio,
+  Search,
+  Settings2,
+  ShieldCheck,
+  Sparkles,
+  Square,
+  Volume2,
+  VolumeX,
+  X,
+  Zap,
+} from "lucide-react";
 import { toast } from "sonner";
 import {
   dismissCheckout,
@@ -25,6 +45,15 @@ import {
   extractProteinGrams,
   productPageUrl,
 } from "@/lib/amul/types";
+import { playRestockChime } from "@/lib/audio/chime";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { ActivityLog } from "./activity-log";
+import { ProductCard } from "./product-card";
+import { SettingsDialog } from "./settings-dialog";
+import { cn } from "@/lib/utils";
 
 const STANDARD_HUBS = [
   { city: "Ahmedabad", pin: "380009" },
@@ -62,32 +91,12 @@ function extractAddressPincode(addr?: SavedAddress | null): string | null {
   }
   return null;
 }
-import { playRestockChime } from "@/lib/audio/chime";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { ActivityLog } from "./activity-log";
-import { ProductCard } from "./product-card";
-import { SettingsDialog } from "./settings-dialog";
-import { cn } from "@/lib/utils";
 
 const STORAGE_KEY = "latch-config-v1";
 const WATCH_KEY = "latch-watching-v1";
 const PROFILE_KEY = "latch-profile-v1";
 
-const PHASE_COPY: Record<WatchSnapshot["phase"], { label: string; hint: string }> = {
-  idle: { label: "Idle", hint: "Set a pincode, pick SKUs, start watching." },
-  watching: { label: "Watching", hint: "Polling Amul. Auto-order waits for a restock edge." },
-  restock: { label: "In stock", hint: "A watched SKU is available for this pincode." },
-  checkout: { label: "Checkout", hint: "Filling cart and advancing as far as Amul allows." },
-  awaiting_payment: {
-    label: "Payment",
-    hint: "Approve the request in your UPI or bank app. Latch stops here.",
-  },
-  ordered: { label: "Ordered", hint: "Amul accepted the order." },
-  error: { label: "Error", hint: "See the activity log. Sessions recover automatically." },
-};
+type SortMode = "default" | "value" | "price-asc" | "price-desc" | "name";
 
 export function LatchDashboard() {
   const [config, setConfig] = useState<AppConfig>(DEFAULT_CONFIG);
@@ -97,14 +106,20 @@ export function LatchDashboard() {
   const [pinInput, setPinInput] = useState("");
   const [query, setQuery] = useState("");
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [busy, setBusy] = useState<"pin" | "watch" | "checkout" | "tg" | "whatsapp" | null>(null);
-  const [filter, setFilter] = useState<"all" | "watched" | "value" | "out">("all");
+  const [activityDrawerOpen, setActivityDrawerOpen] = useState(false);
+  const [inlineActivityOpen, setInlineActivityOpen] = useState(false);
+  const [busy, setBusy] = useState<"pin" | "watch" | "checkout" | "whatsapp" | null>(null);
+  const [filter, setFilter] = useState<"all" | "watched" | "value" | "instock" | "out">("all");
+  const [sort, setSort] = useState<SortMode>("default");
+  const [mobileTab, setMobileTab] = useState<"catalog" | "watched" | "activity">("catalog");
   const [now, setNow] = useState(() => Date.now());
+
   const resumed = useRef(false);
   const seenEventIds = useRef<Set<string>>(new Set());
   const prevStockRef = useRef<Map<string, boolean>>(new Map());
   const initialMountRef = useRef(true);
   const lastChimeTime = useRef(0);
+  const searchInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     try {
@@ -115,10 +130,8 @@ export function LatchDashboard() {
         setConfig(next);
         setPinInput(next.pincode);
 
-        // Sync stored config (pincode, WhatsApp settings, etc.) to server runtime
         void syncServerConfig({ data: { config: next } }).catch(() => undefined);
 
-        // Sync stored session cookie to server runtime so server memory isn't empty
         if (next.sessionCookie?.trim()) {
           void verifySessionCookie({ data: { sessionCookie: next.sessionCookie } })
             .then((res) => {
@@ -144,7 +157,7 @@ export function LatchDashboard() {
         }
       }
     } catch {
-      /* ignore corrupt local config */
+      /* ignore */
     }
 
     try {
@@ -165,7 +178,7 @@ export function LatchDashboard() {
         }
       }
     } catch {
-      /* ignore corrupt profile */
+      /* ignore */
     }
 
     if (typeof window !== "undefined") {
@@ -309,7 +322,6 @@ export function LatchDashboard() {
     return () => window.clearInterval(id);
   }, [snap?.watching]);
 
-  // Guard against accidental back navigation or tab closure while watcher is actively polling
   useEffect(() => {
     if (!snap?.watching) return;
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
@@ -322,6 +334,33 @@ export function LatchDashboard() {
       window.removeEventListener("beforeunload", handleBeforeUnload);
     };
   }, [snap?.watching]);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (
+        e.key === "/" &&
+        document.activeElement?.tagName !== "INPUT" &&
+        document.activeElement?.tagName !== "TEXTAREA"
+      ) {
+        e.preventDefault();
+        searchInputRef.current?.focus();
+      }
+      if (e.key === "Escape") {
+        if (activityDrawerOpen) setActivityDrawerOpen(false);
+        else if (query) setQuery("");
+      }
+      if (
+        (e.key === "a" || e.key === "A") &&
+        document.activeElement?.tagName !== "INPUT" &&
+        document.activeElement?.tagName !== "TEXTAREA"
+      ) {
+        e.preventDefault();
+        setActivityDrawerOpen((prev) => !prev);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [activityDrawerOpen, query]);
 
   const patch = (partial: Partial<AppConfig>) => {
     setConfig((c) => {
@@ -354,17 +393,16 @@ export function LatchDashboard() {
             costPerGramProtein: null,
           };
         });
+
   const trackedMap = useMemo(
     () => new Map(config.products.map((p) => [p.sku, p])),
     [config.products],
   );
 
-  // Restock audio chime monitor (watches restock events & stock transitions)
   useEffect(() => {
     if (!snap) return;
 
     if (initialMountRef.current) {
-      // Seed seen events and current stock levels on initial load so past history doesn't chime
       for (const e of snap.events) {
         seenEventIds.current.add(e.id);
       }
@@ -376,8 +414,6 @@ export function LatchDashboard() {
     }
 
     let restockDetected = false;
-
-    // 1. Detect new restock events in activity log
     for (const ev of snap.events) {
       if (!seenEventIds.current.has(ev.id)) {
         seenEventIds.current.add(ev.id);
@@ -387,7 +423,6 @@ export function LatchDashboard() {
       }
     }
 
-    // 2. Detect stock transitions (out-of-stock -> in-stock) for watched products
     const watchedSkuSet = new Set(config.products.map((p) => p.sku));
     for (const p of products) {
       if (watchedSkuSet.has(p.sku)) {
@@ -410,23 +445,35 @@ export function LatchDashboard() {
     }
   }, [snap, products, config.products, config.soundEnabled]);
 
-  const visible = products
-    .filter((p) => {
-      if (filter === "watched" && !trackedMap.has(p.sku)) return false;
+  const visible = useMemo(() => {
+    let list = products.filter((p) => {
+      if (mobileTab === "watched" || filter === "watched") {
+        if (!trackedMap.has(p.sku)) return false;
+      }
       if (filter === "out" && p.inStock) return false;
+      if (filter === "instock" && !p.inStock) return false;
       if (query.trim()) {
         const q = query.trim().toLowerCase();
         return p.name.toLowerCase().includes(q) || p.sku.toLowerCase().includes(q);
       }
       return true;
-    })
-    .slice()
-    .sort((a, b) => {
-      if (filter === "value") {
+    });
+
+    return list.slice().sort((a, b) => {
+      if (sort === "value" || filter === "value") {
         if (a.inStock !== b.inStock) return a.inStock ? -1 : 1;
         const aCost = a.costPerGramProtein ?? Infinity;
         const bCost = b.costPerGramProtein ?? Infinity;
         if (aCost !== bCost) return aCost - bCost;
+        return a.name.localeCompare(b.name);
+      }
+      if (sort === "price-asc") {
+        return a.price - b.price;
+      }
+      if (sort === "price-desc") {
+        return b.price - a.price;
+      }
+      if (sort === "name") {
         return a.name.localeCompare(b.name);
       }
       const aw = trackedMap.has(a.sku) ? 0 : 1;
@@ -435,18 +482,16 @@ export function LatchDashboard() {
       if (a.inStock !== b.inStock) return a.inStock ? -1 : 1;
       return a.name.localeCompare(b.name);
     });
+  }, [products, filter, sort, mobileTab, query, trackedMap]);
 
   const watching = Boolean(snap?.watching);
-  const phase: WatchSnapshot["phase"] =
-    watching && (snap?.phase === "idle" || !snap?.phase) ? "watching" : (snap?.phase ?? "idle");
-  const copy = PHASE_COPY[phase];
   const nextInSec =
     watching && snap?.lastTickAt
       ? Math.max(0, Math.round((Date.parse(snap.lastTickAt) + snap.nextPollMs - now) / 1000))
       : null;
 
   const quickHubs = useMemo(() => {
-    const hubs: { label: string; pin: string }[] = [];
+    const hubs: { label: string; pin: string; city: string }[] = [];
     const userAddr = snap?.userProfile?.defaultAddress;
     const userPin = extractAddressPincode(userAddr);
 
@@ -455,8 +500,9 @@ export function LatchDashboard() {
       if (isDistinct) {
         const city = userAddr?.city?.trim() || "Saved";
         hubs.push({
-          label: `📍 ${city} (${userPin})`,
+          label: `${city} (${userPin})`,
           pin: userPin,
+          city,
         });
       }
     }
@@ -465,6 +511,7 @@ export function LatchDashboard() {
       hubs.push({
         label: `${hub.city} (${hub.pin})`,
         pin: hub.pin,
+        city: hub.city,
       });
     }
 
@@ -477,7 +524,7 @@ export function LatchDashboard() {
     }
     const pin = (overridePin ?? pinInput).trim();
     if (!/^\d{6}$/.test(pin)) {
-      toast.error("Enter a 6-digit pincode");
+      toast.error("Enter a valid 6-digit pincode");
       return;
     }
     setBusy("pin");
@@ -487,9 +534,9 @@ export function LatchDashboard() {
       });
       patch({ pincode: pin });
       setCatalog(result.products);
-      toast.success(`${result.substore.name} · ${result.products.length} protein SKUs`);
+      toast.success(`Connected to ${result.substore.name} (${result.products.length} SKUs)`);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Could not reach Amul");
+      toast.error(err instanceof Error ? err.message : "Could not reach Amul for this pincode");
     } finally {
       setBusy(null);
     }
@@ -501,19 +548,20 @@ export function LatchDashboard() {
       try {
         localStorage.removeItem(WATCH_KEY);
         setSnap(await stopWatcher());
+        toast.info("Watcher paused");
       } catch (err) {
-        toast.error(err instanceof Error ? err.message : "Could not stop");
+        toast.error(err instanceof Error ? err.message : "Could not pause watcher");
       } finally {
         setBusy(null);
       }
       return;
     }
     if (!config.pincode) {
-      toast.error("Load a pincode first");
+      toast.error("Please load a pincode first");
       return;
     }
     if (!config.products.length) {
-      toast.error("Watch at least one SKU");
+      toast.error("Watch at least one SKU to start monitoring");
       return;
     }
     setBusy("watch");
@@ -521,9 +569,9 @@ export function LatchDashboard() {
       const next = await startWatcher({ data: { config } });
       localStorage.setItem(WATCH_KEY, "1");
       setSnap(next);
-      toast.success("Watcher is live");
+      toast.success("Amul restock radar is active!");
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Could not start");
+      toast.error(err instanceof Error ? err.message : "Could not start watcher");
     } finally {
       setBusy(null);
     }
@@ -533,6 +581,7 @@ export function LatchDashboard() {
     const exists = trackedMap.get(product.sku);
     if (exists) {
       patch({ products: config.products.filter((p) => p.sku !== product.sku) });
+      toast.info(`Removed ${product.name.split(" ")[0]} from watchlist`);
       return;
     }
     patch({
@@ -548,6 +597,7 @@ export function LatchDashboard() {
         },
       ],
     });
+    toast.success(`Watching ${product.name.split(" ")[0]}`);
   }
 
   async function checkout(sku: string) {
@@ -556,11 +606,11 @@ export function LatchDashboard() {
       const next = await startCheckout({ data: { sku, config } });
       setSnap(next);
       if (next.checkout?.status === "awaiting_payment") {
-        toast.message("Payment approval required");
+        toast.message("Payment authorization required");
       } else if (next.checkout?.status === "blocked") {
         const msg = next.checkout.message || "";
         if (msg.toLowerCase().includes("address")) {
-          toast.error("Delivery address required for checkout");
+          toast.error("Delivery address required on Amul");
         } else if (msg.toLowerCase().includes("login") || msg.toLowerCase().includes("session")) {
           toast.message("Amul session login required");
         } else {
@@ -569,7 +619,7 @@ export function LatchDashboard() {
       } else if (next.checkout?.status === "failed") {
         toast.error(next.checkout.message);
       } else {
-        toast.success("Checkout advanced");
+        toast.success("Checkout initialized");
       }
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Checkout failed");
@@ -628,266 +678,575 @@ export function LatchDashboard() {
     }
   }
 
-  const inStockWatched = config.products.filter((t) => products.find((p) => p.sku === t.sku)?.inStock)
-    .length;
-
+  const inStockTotal = products.filter((p) => p.inStock).length;
+  const inStockWatched = config.products.filter(
+    (t) => products.find((p) => p.sku === t.sku)?.inStock,
+  ).length;
+  const outCount = products.filter((p) => !p.inStock).length;
   const hasActiveCookie = Boolean(config.sessionCookie?.trim());
-  const sessionLabel = hasActiveCookie && (snap?.sessionLoggedIn || snap?.userProfile)
-    ? "Logged in"
-    : hasActiveCookie && snap?.sessionImported
-      ? "Imported"
-      : snap?.sessionReady
-        ? "Anonymous"
-        : "None";
+  const userProfile = hasActiveCookie ? snap?.userProfile : null;
 
   return (
-    <div className="mx-auto flex min-h-dvh w-full max-w-[1280px] flex-col gap-6 px-4 py-5 sm:px-6 sm:py-8">
-      <header className="flex flex-wrap items-end justify-between gap-4 latch-enter">
-        <div className="flex flex-col gap-1">
-          <p className="text-xs font-medium tracking-[0.22em] text-muted-foreground uppercase">
-            Amul protein
-          </p>
-          <h1 className="font-display text-4xl leading-none tracking-tight sm:text-5xl">Latch</h1>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button type="button" variant="ghost" size="icon" onClick={() => setSettingsOpen(true)} aria-label="Settings">
-            <Settings2 />
-          </Button>
-          <Button
-            type="button"
-            variant={watching ? "secondary" : "default"}
-            onClick={() => void toggleWatch()}
-            disabled={busy === "watch"}
-          >
-            {busy === "watch" ? (
-              <LoaderCircle className="animate-spin" />
-            ) : watching ? (
-              <Square className="size-3 fill-current" />
-            ) : null}
-            {watching ? "Stop" : "Start watching"}
-          </Button>
+    <div className="min-h-dvh flex flex-col bg-background text-foreground pb-20 sm:pb-12">
+      {/* 1. Industrial Precision Header */}
+      <header className="sticky top-0 z-30 border-b border-border/80 bg-background/95 backdrop-blur-md">
+        <div className="mx-auto max-w-7xl px-4 sm:px-6 h-16 flex items-center justify-between gap-3">
+          {/* Brand & Live Radar Pill */}
+          <div className="flex items-center gap-3 sm:gap-4">
+            <div className="flex flex-col">
+              <span className="font-mono text-[9px] sm:text-[10px] tracking-[0.24em] uppercase text-stock font-bold leading-none">
+                AMUL PROTEIN RADAR
+              </span>
+              <span className="font-display text-2xl sm:text-3xl tracking-tight text-foreground leading-none mt-1">
+                Latch
+              </span>
+            </div>
+
+            {/* Radar Heartbeat Pill */}
+            <div
+              className={cn(
+                "hidden sm:flex items-center gap-2 px-2.5 py-1 rounded-full border text-xs font-mono transition-colors",
+                watching
+                  ? "bg-stock/10 border-stock/40 text-stock"
+                  : "bg-muted/40 border-border/60 text-muted-foreground",
+              )}
+            >
+              <span
+                className={cn(
+                  "size-2 rounded-full",
+                  watching
+                    ? "bg-stock animate-pulse shadow-[0_0_8px_#6f8f6a]"
+                    : "bg-muted-foreground/40",
+                )}
+              />
+              <span className="font-semibold">
+                {watching ? `RADAR ACTIVE${nextInSec !== null ? ` · ${nextInSec}s` : ""}` : "STANDBY"}
+              </span>
+            </div>
+          </div>
+
+          {/* Header Actions */}
+          <div className="flex items-center gap-1.5 sm:gap-2">
+            {/* Restock Sound Chime Toggle */}
+            <button
+              type="button"
+              onClick={() => {
+                const next = !config.soundEnabled;
+                patch({ soundEnabled: next });
+                if (next) {
+                  playRestockChime();
+                  toast.success("Restock sonar chime enabled");
+                } else {
+                  toast.info("Restock audio muted");
+                }
+              }}
+              className={cn(
+                "flex size-9 items-center justify-center rounded-lg border transition-colors cursor-pointer shrink-0",
+                config.soundEnabled
+                  ? "border-border bg-muted/60 text-foreground hover:bg-muted"
+                  : "border-border/50 bg-transparent text-muted-foreground/50 hover:text-muted-foreground",
+              )}
+              title={config.soundEnabled ? "Audio chime active (click to mute)" : "Audio chime muted (click to enable)"}
+              aria-label="Toggle audio chime"
+            >
+              {config.soundEnabled ? <Volume2 className="size-4 text-stock" /> : <VolumeX className="size-4" />}
+            </button>
+
+            {/* Live Telemetry Radar Drawer Button */}
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setActivityDrawerOpen(true)}
+              className="hidden sm:flex items-center gap-2 h-9 border-border/70 bg-card hover:bg-muted font-mono text-xs text-muted-foreground hover:text-foreground shrink-0"
+              title="Open Activity Radar (Shortcut: A)"
+            >
+              <Radio className="size-3.5 text-stock animate-pulse" />
+              <span>Activity</span>
+              {(snap?.events?.length ?? 0) > 0 ? (
+                <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-bold text-foreground">
+                  {snap?.events?.length}
+                </span>
+              ) : null}
+            </Button>
+
+            {/* Settings Dialog Trigger */}
+            <Button
+              type="button"
+              variant="outline"
+              size="icon"
+              onClick={() => setSettingsOpen(true)}
+              className="size-9 border-border/70 bg-card hover:bg-muted text-muted-foreground hover:text-foreground relative shrink-0"
+              aria-label="Settings"
+            >
+              <Settings2 className="size-4" />
+              {userProfile ? (
+                <span className="absolute top-1 right-1 size-2 rounded-full bg-stock" />
+              ) : null}
+            </Button>
+
+            {/* Main Watcher Lever Button */}
+            <Button
+              type="button"
+              variant={watching ? "secondary" : "default"}
+              onClick={() => void toggleWatch()}
+              disabled={busy === "watch"}
+              className={cn(
+                "h-9 px-3 sm:px-4 font-medium text-xs tracking-wide uppercase transition-all shadow-sm shrink-0",
+                watching
+                  ? "bg-muted text-destructive hover:bg-destructive/15 border border-destructive/30"
+                  : "bg-primary text-primary-foreground hover:bg-primary/90 font-bold",
+              )}
+            >
+              {busy === "watch" ? (
+                <LoaderCircle className="size-3.5 animate-spin" />
+              ) : watching ? (
+                <Square className="size-3 fill-current mr-1 sm:mr-1.5" />
+              ) : (
+                <Radio className="size-3.5 mr-1 sm:mr-1.5 animate-pulse" />
+              )}
+              {watching ? (
+                <>
+                  <span>Pause</span>
+                  <span className="hidden sm:inline"> Radar</span>
+                </>
+              ) : (
+                <>
+                  <span className="sm:hidden">Watch</span>
+                  <span className="hidden sm:inline">Start Watching</span>
+                </>
+              )}
+            </Button>
+          </div>
         </div>
       </header>
 
-      {snap?.checkout && snap.checkout.status !== "failed" ? (
-        <PaymentBanner
-          checkout={snap.checkout}
-          isLoggedIn={Boolean(snap.userProfile || snap.sessionLoggedIn)}
-          onDismiss={() => {
-            void dismissCheckout().then(setSnap);
-          }}
-        />
-      ) : null}
+      {/* Main Body */}
+      <main className="mx-auto max-w-7xl w-full px-4 sm:px-6 pt-5 sm:pt-6 flex flex-col gap-6">
+        {/* Payment Required Alert Banner */}
+        {snap?.checkout && snap.checkout.status !== "failed" ? (
+          <PaymentBanner
+            checkout={snap.checkout}
+            isLoggedIn={Boolean(snap.userProfile || snap.sessionLoggedIn)}
+            onDismiss={() => {
+              void dismissCheckout().then(setSnap);
+            }}
+          />
+        ) : null}
 
-      <section className="grid gap-4 lg:grid-cols-[minmax(0,280px)_minmax(0,1fr)]">
-        <aside className="flex flex-col gap-4">
-          <div className="rounded-xl bg-card p-5 shadow-[var(--shadow-border)]">
-            <div className="flex items-center gap-3">
-              <span
-                className={cn(
-                  "size-2.5 rounded-full bg-subtle",
-                  phase === "watching" && "bg-stock latch-pulse",
-                  phase === "restock" && "bg-stock",
-                  phase === "awaiting_payment" && "bg-warn latch-pulse",
-                  phase === "checkout" && "bg-warn latch-pulse",
-                  phase === "ordered" && "bg-stock",
-                  phase === "error" && "bg-destructive",
-                )}
-              />
-              <p className="font-display text-3xl leading-none tracking-tight">{copy.label}</p>
-            </div>
-            <p className="mt-3 text-sm text-muted-foreground">{copy.hint}</p>
-            <dl className="mt-5 grid grid-cols-2 gap-x-3 gap-y-3 text-xs">
-              <Stat label="Pincode" value={config.pincode || "—"} />
-              <Stat label="Substore" value={snap?.substore?.name ?? "—"} />
-              <Stat
-                label="Watching"
-                value={`${config.products.length} SKU${config.products.length === 1 ? "" : "s"}`}
-              />
-              <Stat label="In stock" value={`${inStockWatched}`} />
-              <Stat label="Polls" value={snap ? String(snap.pollCount) : "0"} />
-              <Stat label="Session" value={sessionLabel} />
-            </dl>
-            {snap?.userProfile && hasActiveCookie ? (
-              <div className="mt-4 rounded-lg bg-muted/60 p-3 border border-border/50 text-xs">
-                <div className="flex items-center justify-between gap-1">
-                  <span className="text-[10px] text-muted-foreground font-semibold uppercase tracking-wider">Account</span>
-                  <Badge variant="stock" className="text-[9px] px-1.5 py-0 leading-none">Verified</Badge>
-                </div>
-                <p className="mt-1 font-medium text-foreground truncate">{snap.userProfile.userName}</p>
-                {snap.userProfile.defaultAddress ? (
-                  <p className="mt-1 text-[11px] text-muted-foreground line-clamp-2 leading-tight" title={snap.userProfile.defaultAddress.label}>
-                    📍 {snap.userProfile.defaultAddress.label}
-                  </p>
+        {/* 2. Top Bento Command Deck */}
+        <section className="grid grid-cols-1 lg:grid-cols-12 gap-4">
+          {/* Bento Tile 1: Delivery Hub Matrix (7 cols) */}
+          <div className="lg:col-span-7 rounded-xl bg-card border border-border/70 p-4 sm:p-5 shadow-[var(--shadow-border)] flex flex-col justify-between gap-4">
+            <div>
+              <div className="flex items-center justify-between gap-2 mb-2">
+                <span className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground font-semibold flex items-center gap-1.5">
+                  <MapPin className="size-3 text-stock" />
+                  Delivery Destination & Substore
+                </span>
+                {snap?.substore?.name ? (
+                  <span className="text-[11px] font-mono text-stock bg-stock/15 px-2 py-0.5 rounded border border-stock/30 font-medium">
+                    {snap.substore.name} ({config.pincode})
+                  </span>
                 ) : null}
               </div>
-            ) : null}
-            {snap?.lastError ? (
-              <p className="mt-4 text-xs text-destructive">{snap.lastError}</p>
-            ) : null}
-            {snap?.lastTickAt ? (
-              <p className="mt-4 text-xs text-subtle">
-                Last poll {formatDistanceToNow(new Date(snap.lastTickAt), { addSuffix: true })}
-                {watching && nextInSec !== null ? ` · next in ${nextInSec}s` : ""}
-              </p>
-            ) : null}
+
+              {/* Form Input */}
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  void loadPincode();
+                }}
+                className="flex items-center gap-2"
+              >
+                <div className="relative flex-1">
+                  <Input
+                    id="pincode"
+                    inputMode="numeric"
+                    pattern="\d{6}"
+                    maxLength={6}
+                    placeholder="Enter 6-digit Pincode (e.g. 560001)"
+                    value={pinInput}
+                    onChange={(e) => setPinInput(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                    className="h-10 pl-3 font-mono tracking-widest text-sm bg-muted/40 border-border/70"
+                  />
+                </div>
+                <Button
+                  type="submit"
+                  variant="secondary"
+                  disabled={busy === "pin"}
+                  className="h-10 px-4 font-mono text-xs font-semibold bg-muted hover:bg-muted/80 text-foreground border border-border/60"
+                >
+                  {busy === "pin" ? <LoaderCircle className="size-3.5 animate-spin mr-1" /> : null}
+                  Resolve Hub
+                </Button>
+              </form>
+            </div>
+
+            {/* Quick Hubs Chips */}
+            <div className="flex flex-wrap items-center gap-1.5 pt-2 border-t border-border/40">
+              <span className="text-[11px] font-mono text-muted-foreground mr-1">Major Hubs:</span>
+              {quickHubs.map((hub) => {
+                const isActive = config.pincode === hub.pin;
+                return (
+                  <button
+                    key={hub.pin}
+                    type="button"
+                    disabled={busy === "pin"}
+                    onClick={() => void loadPincode(hub.pin)}
+                    className={cn(
+                      "px-2.5 py-1 rounded-md text-xs font-mono border transition-all cursor-pointer flex items-center gap-1.5",
+                      isActive
+                        ? "border-stock/50 text-stock bg-stock/15 font-semibold shadow-xs"
+                        : "border-border/60 bg-muted/30 hover:bg-muted text-muted-foreground hover:text-foreground",
+                      busy === "pin" && "cursor-not-allowed opacity-50",
+                    )}
+                  >
+                    <span>{hub.city}</span>
+                    <span className="text-[10px] text-muted-foreground/70">{hub.pin}</span>
+                  </button>
+                );
+              })}
+            </div>
           </div>
 
-          <form
-            className="rounded-xl bg-card p-5 shadow-[var(--shadow-border)]"
-            onSubmit={(e) => {
-              e.preventDefault();
-              void loadPincode();
-            }}
-          >
-            <Label htmlFor="pincode">Delivery pincode</Label>
-            <div className="mt-2 flex gap-2">
-              <Input
-                id="pincode"
-                inputMode="numeric"
-                pattern="\d{6}"
-                maxLength={6}
-                placeholder="560001"
-                value={pinInput}
-                onChange={(e) => setPinInput(e.target.value.replace(/\D/g, "").slice(0, 6))}
-                className="font-mono tracking-widest"
-              />
-              <Button type="submit" variant="secondary" disabled={busy === "pin"}>
-                {busy === "pin" ? <LoaderCircle className="animate-spin" /> : "Load"}
-              </Button>
+          {/* Bento Tile 2: Live Telemetry Gauges (5 cols) */}
+          <div className="lg:col-span-5 rounded-xl bg-card border border-border/70 p-4 sm:p-5 shadow-[var(--shadow-border)] flex flex-col justify-between gap-3">
+            <div className="flex items-center justify-between">
+              <span className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground font-semibold flex items-center gap-1.5">
+                <Zap className="size-3 text-stock" />
+                Console Metrics
+              </span>
+              <span className="text-[11px] font-mono text-muted-foreground">
+                {snap?.lastTickAt ? `Updated ${formatDistanceToNow(new Date(snap.lastTickAt), { addSuffix: true })}` : "Standby"}
+              </span>
             </div>
-            <p className="mt-2 text-xs text-muted-foreground">
-              Maps to the Amul substore that actually holds inventory.
-            </p>
 
-            <div className="mt-3.5 border-t border-border/50 pt-3">
-              <div className="flex flex-wrap items-center gap-1.5">
-                <span className="text-[11px] text-muted-foreground mr-0.5">Quick hubs:</span>
-                {quickHubs.map((hub) => {
-                  const isActive = config.pincode === hub.pin;
-                  return (
-                    <button
-                      key={hub.pin}
-                      type="button"
-                      disabled={busy === "pin"}
-                      onClick={() => void loadPincode(hub.pin)}
-                      className={cn(
-                        "px-2 py-0.5 rounded text-[11px] font-mono border transition-colors cursor-pointer flex items-center gap-1",
-                        isActive
-                          ? "border-stock/50 text-stock bg-stock/15 font-semibold"
-                          : "border-border/70 bg-muted/40 hover:bg-muted text-muted-foreground hover:text-foreground",
-                        busy === "pin" && "cursor-not-allowed opacity-50",
-                      )}
-                    >
-                      {hub.label}
-                    </button>
-                  );
-                })}
+            {/* 4 Precision Metric Cells */}
+            <div className="grid grid-cols-2 gap-2.5">
+              {/* In Stock */}
+              <div className="rounded-lg bg-muted/40 border border-border/50 p-2.5">
+                <span className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground block">
+                  In Stock (Live)
+                </span>
+                <div className="flex items-baseline gap-1 mt-0.5">
+                  <span className="font-mono text-xl font-bold text-stock tabular-nums">
+                    {inStockTotal}
+                  </span>
+                  <span className="text-xs text-muted-foreground">/ {products.length} SKUs</span>
+                </div>
+              </div>
+
+              {/* Watched */}
+              <div
+                onClick={() => setFilter(filter === "watched" ? "all" : "watched")}
+                className="rounded-lg bg-muted/40 border border-border/50 p-2.5 cursor-pointer hover:border-border transition-colors"
+                title="Click to toggle watched filter"
+              >
+                <span className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground block">
+                  Watchlist Armed
+                </span>
+                <div className="flex items-baseline gap-1 mt-0.5">
+                  <span className="font-mono text-xl font-bold text-foreground tabular-nums">
+                    {config.products.length}
+                  </span>
+                  <span className="text-xs text-muted-foreground">
+                    ({inStockWatched} ready)
+                  </span>
+                </div>
+              </div>
+
+              {/* Auto-Order Mode */}
+              <div
+                onClick={() => {
+                  const next = !config.autoOrder;
+                  patch({ autoOrder: next });
+                  toast.success(next ? "Auto-checkout armed" : "Auto-checkout disarmed (Notify only)");
+                }}
+                className="rounded-lg bg-muted/40 border border-border/50 p-2.5 cursor-pointer hover:border-border transition-colors"
+                title="Click to toggle auto-order mode"
+              >
+                <span className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground block">
+                  Order Mode
+                </span>
+                <div className="mt-1 flex items-center gap-1.5">
+                  <span
+                    className={cn(
+                      "size-2 rounded-full",
+                      config.autoOrder ? "bg-stock animate-pulse" : "bg-muted-foreground/60",
+                    )}
+                  />
+                  <span
+                    className={cn(
+                      "text-xs font-mono font-semibold",
+                      config.autoOrder ? "text-stock" : "text-muted-foreground",
+                    )}
+                  >
+                    {config.autoOrder ? "Auto-Order Armed" : "Notify Only"}
+                  </span>
+                </div>
+              </div>
+
+              {/* Amul Session Account */}
+              <div
+                onClick={() => setSettingsOpen(true)}
+                className="rounded-lg bg-muted/40 border border-border/50 p-2.5 cursor-pointer hover:border-border transition-colors"
+                title="Click to manage Amul account & session"
+              >
+                <span className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground block">
+                  Amul Account
+                </span>
+                <div className="mt-1 flex items-center gap-1.5 truncate">
+                  {userProfile ? (
+                    <>
+                      <CheckCircle2 className="size-3 text-stock shrink-0" />
+                      <span className="text-xs font-medium text-foreground truncate">
+                        {userProfile.userName.split(" ")[0]}
+                      </span>
+                    </>
+                  ) : (
+                    <span className="text-xs font-mono text-muted-foreground">Guest Session</span>
+                  )}
+                </div>
               </div>
             </div>
-          </form>
-
-          <div className="flex items-start gap-3 rounded-xl bg-card p-5 shadow-[var(--shadow-border)]">
-            <ShieldCheck className="mt-0.5 size-4 shrink-0 text-stock" />
-            <p className="text-xs leading-relaxed text-muted-foreground">
-              Payment stays on Amul. Latch never collects UPI PIN, OTP, card CVV, or bank passwords,
-              and it does not call a third-party order server.
-            </p>
           </div>
-        </aside>
+        </section>
 
-        <div className="flex min-w-0 flex-col gap-4">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="flex gap-1 rounded-lg bg-card p-1 shadow-[var(--shadow-border)]">
-              {(
-                [
-                  ["all", "All"],
-                  ["value", "Best Value"],
-                  ["watched", "Watched"],
-                  ["out", "Out of stock"],
-                ] as const
-              ).map(([id, label]) => (
+        {/* 3. Toolbar: Search, Filters & Sorters */}
+        <section className="flex flex-col gap-3">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+            {/* Filter Pills */}
+            <div className="flex flex-wrap items-center gap-1.5">
+              {[
+                { id: "all", label: `All (${products.length})` },
+                { id: "value", label: "Best Value (₹/g)" },
+                { id: "instock", label: `In Stock (${inStockTotal})` },
+                { id: "watched", label: `Watched (${config.products.length})` },
+                { id: "out", label: `Out of Stock (${outCount})` },
+              ].map(({ id, label }) => (
                 <button
                   key={id}
                   type="button"
-                  onClick={() => setFilter(id)}
+                  onClick={() => setFilter(id as typeof filter)}
                   className={cn(
-                    "h-11 rounded-md px-3 text-xs font-medium transition-colors",
-                    filter === id ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground",
+                    "px-3 py-1.5 rounded-lg text-xs font-mono font-medium transition-all cursor-pointer border",
+                    filter === id
+                      ? "bg-primary text-primary-foreground border-primary font-semibold shadow-xs"
+                      : "bg-card border-border/70 text-muted-foreground hover:text-foreground hover:bg-muted/60",
                   )}
                 >
                   {label}
                 </button>
               ))}
             </div>
+
+            {/* Right: Search + Sort selector */}
             <div className="flex items-center gap-2">
-              {config.autoOrder ? <Badge variant="paper">Auto-order</Badge> : <Badge>Notify only</Badge>}
-              {config.whatsappEnabled ? <Badge variant="stock">WhatsApp</Badge> : null}
+              {/* Search Bar */}
+              <div className="relative flex-1 sm:w-64">
+                <Search className="pointer-events-none absolute top-1/2 left-3 size-3.5 -translate-y-1/2 text-subtle" />
+                <Input
+                  ref={searchInputRef}
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  placeholder="Filter SKUs... (press /)"
+                  className="h-9 pl-8 pr-7 text-xs font-mono bg-card border-border/70"
+                  aria-label="Filter products"
+                />
+                {query ? (
+                  <button
+                    type="button"
+                    onClick={() => setQuery("")}
+                    className="absolute top-1/2 right-2 -translate-y-1/2 text-muted-foreground hover:text-foreground cursor-pointer"
+                  >
+                    <X className="size-3.5" />
+                  </button>
+                ) : (
+                  <kbd className="pointer-events-none absolute top-1/2 right-2 -translate-y-1/2 rounded border border-border bg-muted/60 px-1 font-mono text-[10px] text-muted-foreground">
+                    /
+                  </kbd>
+                )}
+              </div>
+
+              {/* Sort Selector */}
+              <div className="relative">
+                <select
+                  value={sort}
+                  onChange={(e) => setSort(e.target.value as SortMode)}
+                  className="h-9 appearance-none rounded-lg border border-border/70 bg-card px-3 pr-8 text-xs font-mono text-foreground hover:bg-muted/60 cursor-pointer focus:outline-none"
+                  aria-label="Sort products"
+                >
+                  <option value="default">Sort: Priority</option>
+                  <option value="value">Sort: Lowest ₹/g</option>
+                  <option value="price-asc">Price: Low to High</option>
+                  <option value="price-desc">Price: High to Low</option>
+                  <option value="name">Name A-Z</option>
+                </select>
+                <ArrowUpDown className="pointer-events-none absolute top-1/2 right-2.5 size-3 -translate-y-1/2 text-muted-foreground" />
+              </div>
             </div>
           </div>
+        </section>
 
-          {products.length > 0 ? (
-            <div className="relative">
-              <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-subtle" />
-              <Input
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                placeholder="Filter by name or SKU"
-                className="pl-9"
-                aria-label="Filter products"
+        {/* 4. Products Grid */}
+        {busy === "pin" && products.length === 0 ? (
+          <div className="flex flex-col items-center justify-center rounded-xl bg-card border border-border/70 p-12 text-center">
+            <LoaderCircle className="size-8 text-stock animate-spin mb-3" />
+            <p className="font-display text-2xl tracking-tight text-foreground">Talking to Amul…</p>
+            <p className="mt-1 text-xs font-mono text-muted-foreground">
+              Resolving substore routing and loading real-time protein catalog.
+            </p>
+          </div>
+        ) : products.length === 0 ? (
+          <EmptyState onQuickPick={(pin) => void loadPincode(pin)} />
+        ) : visible.length === 0 ? (
+          <div className="flex flex-col items-center justify-center rounded-xl bg-card border border-border/70 p-12 text-center">
+            <Filter className="size-8 text-subtle mb-3" />
+            <p className="font-display text-xl text-foreground">No SKUs match this filter</p>
+            <p className="mt-1 text-xs font-mono text-muted-foreground">
+              Try clearing your search query or selecting "All" to view all available products.
+            </p>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setFilter("all");
+                setQuery("");
+              }}
+              className="mt-4 text-xs font-mono"
+            >
+              Reset Filters
+            </Button>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+            {visible.map((product, i) => (
+              <div
+                key={product.id}
+                className="latch-enter"
+                style={{ animationDelay: `${Math.min(i, 8) * 35}ms` }}
+              >
+                <ProductCard
+                  product={product}
+                  tracked={trackedMap.get(product.sku)}
+                  onToggle={() => toggleSku(product)}
+                  onQuantity={(qty) =>
+                    patch({
+                      products: config.products.map((p) =>
+                        p.sku === product.sku ? { ...p, quantity: qty } : p,
+                      ),
+                    })
+                  }
+                  onCheckout={() => void checkout(product.sku)}
+                  checkoutBusy={busy === "checkout"}
+                />
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* 5. Collapsible Inline Telemetry Section */}
+        <div className="rounded-xl border border-border/70 bg-card overflow-hidden">
+          <button
+            type="button"
+            onClick={() => setInlineActivityOpen((prev) => !prev)}
+            className="w-full flex items-center justify-between p-4 bg-muted/20 hover:bg-muted/40 transition-colors text-left cursor-pointer"
+          >
+            <div className="flex items-center gap-2">
+              <Radio className="size-4 text-stock animate-pulse" />
+              <span className="font-mono text-xs font-semibold uppercase tracking-wider text-foreground">
+                Telemetry Log & Radar Events
+              </span>
+              <span className="text-xs font-mono text-muted-foreground">
+                ({snap?.events?.length ?? 0} recorded)
+              </span>
+            </div>
+            <div className="flex items-center gap-2 text-xs font-mono text-muted-foreground">
+              <span>{inlineActivityOpen ? "Collapse" : "Expand Stream"}</span>
+              <ChevronDown
+                className={cn(
+                  "size-4 transition-transform duration-200",
+                  inlineActivityOpen && "rotate-180",
+                )}
               />
             </div>
-          ) : null}
+          </button>
 
-          {busy === "pin" && products.length === 0 ? (
-            <div className="rounded-xl bg-card p-6 shadow-[var(--shadow-border)]">
-              <p className="font-display text-2xl tracking-tight">Talking to Amul…</p>
-              <p className="mt-2 text-sm text-muted-foreground">
-                Resolving the substore for this pincode and loading protein SKUs.
+          {inlineActivityOpen ? (
+            <div className="p-4 border-t border-border/60">
+              <ActivityLog events={snap?.events ?? []} />
+            </div>
+          ) : null}
+        </div>
+
+        {/* 6. Footer & Non-Custodial Safety Guarantee */}
+        <footer className="mt-8 pt-6 border-t border-border/40 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-muted-foreground">
+          <div className="flex items-center gap-2">
+            <ShieldCheck className="size-4 text-stock shrink-0" />
+            <p className="text-[11px] leading-relaxed">
+              <strong className="text-foreground">Non-Custodial Architecture:</strong> Payments stay on Amul.
+              Latch never asks for UPI PIN, OTP, CVV, or bank credentials.
+            </p>
+          </div>
+          <div className="flex items-center gap-4 text-[11px] font-mono shrink-0">
+            <span>Adaptive Polling</span>
+            <span>·</span>
+            <span>Self-Hosted</span>
+            <span>·</span>
+            <a
+              href="https://shop.amul.com"
+              target="_blank"
+              rel="noreferrer"
+              className="hover:text-foreground flex items-center gap-1"
+            >
+              Amul Store <ExternalLink className="size-3" />
+            </a>
+          </div>
+        </footer>
+      </main>
+
+      {/* 7. Slide-Over Activity Radar Drawer */}
+      {activityDrawerOpen ? (
+        <div className="fixed inset-0 z-50 flex justify-end">
+          <div
+            className="fixed inset-0 bg-background/80 backdrop-blur-xs transition-opacity"
+            onClick={() => setActivityDrawerOpen(false)}
+          />
+
+          <div className="relative w-full max-w-md bg-card border-l border-border h-full flex flex-col shadow-2xl z-10 latch-enter">
+            <div className="flex items-center justify-between p-4 border-b border-border bg-muted/30">
+              <div className="flex items-center gap-2">
+                <Radio className="size-4 text-stock animate-pulse" />
+                <h2 className="font-mono text-sm font-semibold uppercase tracking-wider text-foreground">
+                  Live Radar Telemetry
+                </h2>
+              </div>
+              <button
+                type="button"
+                onClick={() => setActivityDrawerOpen(false)}
+                className="size-8 flex items-center justify-center rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+                aria-label="Close activity radar"
+              >
+                <X className="size-4" />
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-4">
+              <ActivityLog events={snap?.events ?? []} />
+            </div>
+
+            <div className="p-4 border-t border-border bg-muted/20 text-center">
+              <p className="text-[11px] font-mono text-muted-foreground">
+                Press <kbd className="px-1 border rounded bg-card">Esc</kbd> to close · Updates stream automatically
               </p>
             </div>
-          ) : products.length === 0 ? (
-            <EmptyState />
-          ) : visible.length === 0 ? (
-            <div className="rounded-xl bg-card p-6 shadow-[var(--shadow-border)]">
-              <p className="text-sm text-muted-foreground">No SKUs match this filter.</p>
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
-              {visible.map((product, i) => (
-                <div
-                  key={product.id}
-                  className="latch-enter"
-                  style={{ animationDelay: `${Math.min(i, 8) * 40}ms` }}
-                >
-                  <ProductCard
-                    product={product}
-                    tracked={trackedMap.get(product.sku)}
-                    onToggle={() => toggleSku(product)}
-                    onQuantity={(qty) =>
-                      patch({
-                        products: config.products.map((p) =>
-                          p.sku === product.sku ? { ...p, quantity: qty } : p,
-                        ),
-                      })
-                    }
-                    onCheckout={() => void checkout(product.sku)}
-                    checkoutBusy={busy === "checkout"}
-                  />
-                </div>
-              ))}
-            </div>
-          )}
-
-          <div>
-            <h2 className="mb-3 text-xs font-medium tracking-[0.18em] text-muted-foreground uppercase">
-              Activity
-            </h2>
-            <ActivityLog events={snap?.events ?? []} />
           </div>
         </div>
-      </section>
+      ) : null}
 
+      {/* 8. Settings Dialog */}
       <SettingsDialog
         open={settingsOpen}
         onOpenChange={setSettingsOpen}
@@ -895,7 +1254,7 @@ export function LatchDashboard() {
         onChange={patch}
         onTestWhatsApp={() => void sendWhatsAppTest()}
         whatsappBusy={busy === "whatsapp"}
-        userProfile={hasActiveCookie ? snap?.userProfile : null}
+        userProfile={userProfile}
         onProfileVerified={(profile) => {
           setSnap((prev) =>
             prev
@@ -913,76 +1272,141 @@ export function LatchDashboard() {
             } catch {
               /* ignore */
             }
-          } else {
-            try {
-              localStorage.removeItem(PROFILE_KEY);
-            } catch {
-              /* ignore */
-            }
-            setConfig((prev) => {
-              const next = { ...prev, sessionCookie: "" };
-              try {
-                localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
-              } catch {
-                /* ignore */
-              }
-              return next;
-            });
           }
         }}
         onDisconnect={handleDisconnectSession}
       />
+
+      {/* 9. Mobile Bottom Navigation Bar (sm:hidden) */}
+      <nav className="sm:hidden fixed bottom-0 left-0 right-0 z-40 border-t border-border bg-background/95 backdrop-blur-md px-4 py-2 flex items-center justify-around">
+        <button
+          type="button"
+          onClick={() => {
+            setMobileTab("catalog");
+            setFilter("all");
+          }}
+          className={cn(
+            "flex flex-col items-center gap-1 text-[10px] font-mono py-1 px-3 rounded-md transition-colors cursor-pointer",
+            mobileTab === "catalog" && filter !== "watched"
+              ? "text-stock font-bold"
+              : "text-muted-foreground hover:text-foreground",
+          )}
+        >
+          <Search className="size-4" />
+          <span>Catalog</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => {
+            setMobileTab("watched");
+            setFilter("watched");
+          }}
+          className={cn(
+            "flex flex-col items-center gap-1 text-[10px] font-mono py-1 px-3 rounded-md transition-colors cursor-pointer relative",
+            filter === "watched"
+              ? "text-stock font-bold"
+              : "text-muted-foreground hover:text-foreground",
+          )}
+        >
+          <Zap className="size-4" />
+          <span>Watch ({config.products.length})</span>
+          {inStockWatched > 0 ? (
+            <span className="absolute top-0 right-1 size-1.5 rounded-full bg-stock animate-pulse" />
+          ) : null}
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActivityDrawerOpen(true)}
+          className="flex flex-col items-center gap-1 text-[10px] font-mono py-1 px-3 rounded-md text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+        >
+          <Radio className="size-4" />
+          <span>Activity</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setSettingsOpen(true)}
+          className="flex flex-col items-center gap-1 text-[10px] font-mono py-1 px-3 rounded-md text-muted-foreground hover:text-foreground transition-colors cursor-pointer relative"
+        >
+          <Settings2 className="size-4" />
+          <span>Settings</span>
+          {userProfile ? (
+            <span className="absolute top-0 right-1 size-1.5 rounded-full bg-stock" />
+          ) : null}
+        </button>
+      </nav>
     </div>
   );
 }
 
-function EmptyState() {
+function EmptyState({ onQuickPick }: { onQuickPick: (pin: string) => void }) {
   return (
-    <div className="flex min-h-72 flex-col justify-end gap-6 rounded-xl bg-card p-6 shadow-[var(--shadow-border)] sm:p-8">
+    <div className="flex flex-col justify-end gap-6 rounded-xl bg-card border border-border/70 p-6 sm:p-8 shadow-[var(--shadow-border)]">
       <div>
-        <p className="font-display text-2xl tracking-tight">Load a pincode to see live protein stock.</p>
-        <p className="mt-2 max-w-md text-sm text-muted-foreground">
-          Latch talks to shop.amul.com directly — no scrape, no always-on browser. The watcher uses
-          adaptive polling so a small machine can sit on a restock without hammering the shop.
+        <div className="inline-flex items-center gap-2 px-2.5 py-1 rounded-full bg-stock/15 border border-stock/30 text-stock text-xs font-mono font-medium mb-3">
+          <Sparkles className="size-3.5" />
+          Zero Scraping · Direct Shop API
+        </div>
+        <h2 className="font-display text-2xl sm:text-3xl tracking-tight text-foreground">
+          Enter your delivery pincode to discover live protein inventory.
+        </h2>
+        <p className="mt-2 max-w-xl text-xs sm:text-sm text-muted-foreground leading-relaxed">
+          Latch connects directly to Amul regional substores to index live whey protein, blueberry shakes,
+          lassi, buttermilk, and high-protein paneer inventory with adaptive restock polling.
         </p>
       </div>
-      <ol className="grid gap-3 text-sm sm:grid-cols-3">
-        {[
-          { n: "01", t: "Pincode", d: "Load the 6-digit pin Amul delivers to." },
-          { n: "02", t: "Watch", d: "Pick SKUs and quantity. Auto-order is off until you enable it." },
-          { n: "03", t: "Leave it", d: "Keep this desk open. It polls, then pauses only for real payment." },
-        ].map((step) => (
-          <li key={step.n} className="rounded-lg bg-muted px-4 py-3 shadow-[var(--shadow-border)]">
-            <p className="font-mono text-xs text-subtle">{step.n}</p>
-            <p className="mt-1 font-medium">{step.t}</p>
-            <p className="mt-1 text-xs text-muted-foreground">{step.d}</p>
-          </li>
-        ))}
-      </ol>
-    </div>
-  );
-}
 
-function Stat({ label, value }: { label: string; value: string }) {
-  return (
-    <div>
-      <dt className="text-subtle">{label}</dt>
-      <dd className="mt-0.5 truncate font-medium text-foreground tabular-nums">{value}</dd>
+      <div className="grid gap-3 sm:grid-cols-3 text-xs">
+        <div
+          onClick={() => onQuickPick("560001")}
+          className="rounded-lg bg-muted/50 hover:bg-muted border border-border/60 p-4 transition-all cursor-pointer group"
+        >
+          <p className="font-mono text-xs text-stock font-semibold">01 · SELECT HUB</p>
+          <p className="mt-1 font-medium text-foreground text-sm">Bengaluru (560001)</p>
+          <p className="mt-1 text-[11px] text-muted-foreground">
+            Tap to load live south zone protein catalog immediately.
+          </p>
+        </div>
+
+        <div
+          onClick={() => onQuickPick("380009")}
+          className="rounded-lg bg-muted/50 hover:bg-muted border border-border/60 p-4 transition-all cursor-pointer group"
+        >
+          <p className="font-mono text-xs text-stock font-semibold">02 · SELECT HUB</p>
+          <p className="mt-1 font-medium text-foreground text-sm">Ahmedabad (380009)</p>
+          <p className="mt-1 text-[11px] text-muted-foreground">
+            Gujarat HQ substore with frequent chocolate & vanilla whey restocks.
+          </p>
+        </div>
+
+        <div
+          onClick={() => onQuickPick("110001")}
+          className="rounded-lg bg-muted/50 hover:bg-muted border border-border/60 p-4 transition-all cursor-pointer group"
+        >
+          <p className="font-mono text-xs text-stock font-semibold">03 · SELECT HUB</p>
+          <p className="mt-1 font-medium text-foreground text-sm">Delhi (110001)</p>
+          <p className="mt-1 text-[11px] text-muted-foreground">
+            North India distribution depot for instant restock monitoring.
+          </p>
+        </div>
+      </div>
     </div>
   );
 }
 
 function getBannerTitle(checkout: NonNullable<WatchSnapshot["checkout"]>, isLoggedIn: boolean): string {
-  if (checkout.status === "awaiting_payment") return "Payment approval required";
-  if (checkout.status === "success") return "Order accepted";
+  if (checkout.status === "awaiting_payment") return "Payment Approval Required";
+  if (checkout.status === "success") return "Order Accepted by Amul";
   if (checkout.status === "blocked") {
     const msg = checkout.message.toLowerCase();
-    if (msg.includes("address")) return "Delivery address required";
-    if (msg.includes("hold") || msg.includes("unavailable") || msg.includes("limit")) return "SKU hold on Amul";
-    if (isLoggedIn) return "Action required on Amul";
-    return "Paused for Amul login";
+    if (msg.includes("address")) return "Delivery Address Required";
+    if (msg.includes("hold") || msg.includes("unavailable") || msg.includes("limit")) return "SKU Hold on Amul";
+    if (isLoggedIn) return "Action Required on Amul";
+    return "Paused for Amul Login";
   }
-  return "Checkout in progress";
+  return "Checkout in Progress";
 }
 
 function PaymentBanner({
@@ -998,17 +1422,17 @@ function PaymentBanner({
   const isAwaitingPayment = checkout.status === "awaiting_payment";
 
   return (
-    <div className="flex flex-col gap-3 rounded-xl bg-card p-5 shadow-[var(--shadow-border)] border border-border/60">
+    <div className="flex flex-col gap-3 rounded-xl bg-card p-4 sm:p-5 shadow-lg border border-stock/40 bg-gradient-to-r from-card to-stock/10 latch-enter">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             <span
               className={cn(
-                "inline-flex size-2 rounded-full",
-                isAwaitingPayment ? "bg-stock animate-pulse" : "bg-muted-foreground",
+                "inline-flex size-2.5 rounded-full",
+                isAwaitingPayment ? "bg-stock animate-ping" : "bg-muted-foreground",
               )}
             />
-            <p className="text-sm font-semibold tracking-tight">
+            <p className="text-sm font-semibold tracking-tight text-foreground">
               {getBannerTitle(checkout, isLoggedIn)}
             </p>
           </div>
@@ -1017,25 +1441,24 @@ function PaymentBanner({
 
         <div className="flex flex-wrap items-center gap-2 shrink-0">
           {href ? (
-            <Button asChild size="sm" className="bg-stock text-white hover:bg-stock/90 shadow-sm gap-1.5 font-medium">
+            <Button asChild size="sm" className="bg-stock text-primary-foreground hover:bg-stock/90 shadow-sm gap-1.5 font-medium text-xs">
               <a href={href} target="_blank" rel="noreferrer">
-                <span>{checkout.paymentUrl ? "Open payment" : "Open Amul"}</span>
+                <span>{checkout.paymentUrl ? "Authorize Payment" : "Open Cart"}</span>
                 <ExternalLink className="size-3.5" />
               </a>
             </Button>
           ) : null}
-          <Button type="button" size="sm" variant="ghost" onClick={onDismiss} className="text-xs">
+          <Button type="button" size="sm" variant="ghost" onClick={onDismiss} className="text-xs text-muted-foreground hover:text-foreground">
             Dismiss
           </Button>
         </div>
       </div>
 
-      {/* Order Verification Details Strip */}
       {(checkout.addressSummary || checkout.recipientName || checkout.name) && (
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-2.5 rounded-lg border border-border/50 bg-muted/30 p-3 text-xs">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-2.5 rounded-lg border border-border/50 bg-background/60 p-3 text-xs">
           <div>
             <span className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground block mb-0.5">
-              Item Details
+              Item Reserved
             </span>
             <p className="font-medium text-foreground truncate">{checkout.name}</p>
             <p className="font-mono text-[11px] text-muted-foreground">
@@ -1045,14 +1468,14 @@ function PaymentBanner({
 
           <div>
             <span className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground block mb-0.5">
-              Shipping Address
+              Shipping Destination
             </span>
             <p className="font-medium text-foreground truncate">
               {checkout.recipientName || "Registered User"}{" "}
               {checkout.recipientPhone ? `(${checkout.recipientPhone})` : ""}
             </p>
             <p className="text-[11px] text-muted-foreground truncate" title={checkout.addressSummary}>
-              {checkout.addressSummary || "Default Amul Saved Address"}
+              {checkout.addressSummary || "Default Saved Delivery Address"}
             </p>
           </div>
 
@@ -1061,10 +1484,10 @@ function PaymentBanner({
               Payment Gateway
             </span>
             <p className="font-medium text-stock truncate">
-              {checkout.paymentMethodName || "Official Amul Gateway"}
+              {checkout.paymentMethodName || "Official GCMMF Amul Gateway"}
             </p>
             <p className="text-[10px] text-muted-foreground">
-              Direct to GCMMF Ltd (Amul) · Zero-touch
+              Direct to GCMMF Ltd · Non-custodial
             </p>
           </div>
         </div>

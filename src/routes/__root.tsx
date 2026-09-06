@@ -51,7 +51,7 @@ function RootDocument() {
             <Outlet />
             <Toaster
               theme="dark"
-              position="bottom-right"
+              position="top-right"
               toastOptions={{
                 className: "bg-card text-card-foreground shadow-[var(--shadow-border)]",
               }}
