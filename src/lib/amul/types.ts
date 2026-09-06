@@ -221,13 +221,7 @@ export function extractProteinGrams(name: string, alias?: string): number | null
     if (Number.isFinite(val) && val > 0) return val;
   }
 
-  // 3. Whey sachet special handling:
-  // Amul Whey Protein sachets are 32g gross powder weight containing exactly 25g protein.
-  if (text.includes("sachet") && (text.includes("whey") || text.includes("32"))) {
-    return 25;
-  }
-
-  // 4. "protein <num>g" (e.g. "Protein: 25g" or "protein - 15g")
+  // 3. "protein <num>g" (e.g. "Protein: 25g" or "protein - 15g")
   const prefixMatch = text.match(
     /protein\s*(?:content|contains)?\s*[:\-\s]\s*(\d+(?:\.\d+)?)\s*(?:g|gm|gms|grams?)\b/,
   );
@@ -236,25 +230,31 @@ export function extractProteinGrams(name: string, alias?: string): number | null
     if (Number.isFinite(val) && val > 0) return val;
   }
 
-  // 5. Parentheses with gram e.g. "(15g)" or "(25 g)" or "(35g)" or "(70 g)"
+  // 4. Parentheses with gram e.g. "(15g)" or "(25 g)" or "(35g)" or "(70 g)"
   const parenMatch = text.match(/\(\s*(\d+(?:\.\d+)?)\s*(?:g|gm|gms|grams?)\s*\)/);
   if (parenMatch) {
     const val = parseFloat(parenMatch[1]);
     if (Number.isFinite(val) && val > 0 && val <= 100) return val;
   }
 
-  // 6. Explicit standalone protein gram patterns e.g. " 15g", " 24 g", " 25g", " 35g", " 70 g"
+  // 5. Explicit standalone protein gram patterns e.g. " 15g", " 24 g", " 25g", " 35g", " 70 g"
   const specificMatch = text.match(/\b(15|24|25|30|35|40|50|60|70|75|80)\s*(?:g|gm|gms|grams?)\b/);
   if (specificMatch) {
     const val = parseFloat(specificMatch[1]);
     if (Number.isFinite(val) && val > 0) return val;
   }
 
-  // 7. General number with "g" if 10 <= val <= 85 (excluding pack weights like 200g, 250ml, etc.)
+  // 6. General number with "g" if 10 <= val <= 85 (excluding pack weights like 200g, 250ml, etc.)
   const genericGMatch = text.match(/\b(\d{1,2}(?:\.\d+)?)\s*(?:g|gm|gms|grams?)\b/);
   if (genericGMatch) {
     const val = parseFloat(genericGMatch[1]);
     if (Number.isFinite(val) && val >= 10 && val <= 85) return val;
+  }
+
+  // 7. Whey sachet fallback:
+  // Amul Whey Protein sachets are typically 32g gross powder weight containing 25g protein.
+  if (text.includes("sachet") && (text.includes("whey") || text.includes("32"))) {
+    return 25;
   }
 
   // 8. Product fallbacks for standard Amul offerings

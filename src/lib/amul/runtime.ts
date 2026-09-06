@@ -561,14 +561,55 @@ export async function checkSessionCookie(sessionCookie: string): Promise<Session
   return res;
 }
 
-function nextInterval(s: RuntimeState): number {
+/**
+ * Returns decimal hour in Indian Standard Time (IST, UTC+5:30).
+ * e.g., 14:30 IST returns 14.5.
+ */
+export function getISTDecimalHour(date = new Date()): number {
+  const utcHour = date.getUTCHours();
+  const utcMinute = date.getUTCMinutes();
+  return (utcHour + 5 + (utcMinute + 30) / 60) % 24;
+}
+
+/**
+ * Calculates adaptive polling interval based on watch state and circadian restock windows:
+ * - Active checkout / payment: priority polling (~5s).
+ * - In-stock with autoOrder: min interval (pollMinMs).
+ * - All watched items out-of-stock:
+ *   - Night Dormancy (23:00 to 06:30 IST): substores dormant, backs off to 45s-90s to conserve CPU/RAM/traffic.
+ *   - Morning & Evening Restock Peaks (10:00-14:00 & 18:00-22:00 IST): high-priority restock syncs (~6s-8s).
+ *   - Standard Daytime (06:30-10:00 & 14:00-18:00 & 22:00-23:00 IST): baseline cadence (~8s-15s).
+ */
+export function calculateAdaptiveInterval(s: RuntimeState, now = new Date()): number {
   const tracked = s.config.products;
   const anyIn = tracked.some((t) => s.products.find((p) => p.sku === t.sku)?.inStock);
+
   if (s.checkout?.status === "running") return Math.max(s.config.pollMinMs, 5000);
   if (anyIn && s.config.autoOrder) return s.config.pollMinMs;
+
   const allOut = tracked.length > 0 && tracked.every((t) => !s.products.find((p) => p.sku === t.sku)?.inStock);
-  if (allOut) return Math.min(s.config.pollMaxMs, Math.max(s.config.pollMinMs, 8000));
+  if (allOut) {
+    const istHour = getISTDecimalHour(now);
+
+    // Night Dormancy window: 23:00 to 06:30 IST
+    if (istHour >= 23 || istHour < 6.5) {
+      return Math.min(90000, Math.max(s.config.pollMaxMs, 45000));
+    }
+
+    // Daytime Peak Restock windows: 10:00 - 14:00 & 18:00 - 22:00 IST
+    if ((istHour >= 10 && istHour < 14) || (istHour >= 18 && istHour < 22)) {
+      return Math.min(s.config.pollMaxMs, Math.max(s.config.pollMinMs, 7000));
+    }
+
+    // Daytime standard window (06:30 - 10:00 & 14:00 - 18:00 & 22:00 - 23:00 IST)
+    return Math.min(s.config.pollMaxMs, Math.max(s.config.pollMinMs, 10000));
+  }
+
   return s.config.pollMinMs;
+}
+
+function nextInterval(s: RuntimeState): number {
+  return calculateAdaptiveInterval(s);
 }
 
 function jitter(ms: number): number {
