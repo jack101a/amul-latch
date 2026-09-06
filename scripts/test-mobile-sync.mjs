@@ -81,6 +81,27 @@ async function verifyMobileSync() {
     const stepsVisible = await page.locator("text=Android Chrome Setup").isVisible();
     console.log(`Android Chrome steps visible: ${stepsVisible}`);
 
+    // Test Copy Script button
+    console.log("Testing Copy Script button...");
+    const copyBtn = page.locator("button:has-text('Copy Script')").first();
+    await copyBtn.click();
+    await page.waitForTimeout(300);
+
+    const copiedBadge = page.locator("text=Copied!").first();
+    if (await copiedBadge.isVisible()) {
+      console.log("✅ Copy Script triggered and visual 'Copied!' feedback displayed!");
+    } else {
+      console.warn("⚠️ Copied! feedback not visible immediately");
+    }
+
+    // Verify textarea script box
+    const scriptBox = page.locator("textarea");
+    const scriptValue = await scriptBox.inputValue();
+    console.log(`Script box contains: ${scriptValue.slice(0, 45)}... (length ${scriptValue.length})`);
+    if (!scriptValue.includes("jsessionid") || !scriptValue.includes("import_cookie")) {
+      throw new Error("Script box content is invalid!");
+    }
+
     const shot2 = join(SHOTS_DIR, "mobile-sync-complete.png");
     await page.screenshot({ path: shot2, fullPage: true });
     console.log(`Saved screenshot 2: ${shot2}`);

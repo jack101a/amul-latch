@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import {
   AlertTriangle,
+  Check,
   CheckCircle2,
   Copy,
   ExternalLink,
@@ -40,7 +41,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
-import { cn } from "@/lib/utils";
+import { cn, copyTextToClipboard } from "@/lib/utils";
 
 type Props = {
   open: boolean;
@@ -233,6 +234,19 @@ export function SettingsDialog({
 
   const latchOrigin = origin || (typeof window !== "undefined" ? window.location.origin : "http://127.0.0.1:8082");
   const bookmarkletHref = `javascript:(function(){const m=document.cookie.match(/jsessionid=([^;]+)/i);if(m){const targetUrl='${latchOrigin}/?import_cookie='+encodeURIComponent(m[1]);if(location.origin.includes('amul.com')){try{const w=window.open(targetUrl,'_blank');if(!w||w.closed||typeof w.closed==='undefined'){window.location.href=targetUrl;}}catch(e){window.location.href=targetUrl;}}else{alert('Please run this bookmarklet while browsing shop.amul.com!');}}else{alert('No active session found. Please log in on shop.amul.com first!')}})()`;
+
+  const [copiedScript, setCopiedScript] = useState(false);
+
+  const handleCopyScript = async () => {
+    const ok = await copyTextToClipboard(bookmarkletHref);
+    if (ok) {
+      setCopiedScript(true);
+      toast.success("Bookmarklet code copied to clipboard!");
+      setTimeout(() => setCopiedScript(false), 2500);
+    } else {
+      toast.info("Browser blocked clipboard copy. Tap the script box to select & copy.");
+    }
+  };
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -575,21 +589,29 @@ export function SettingsDialog({
                         </p>
                         <Button
                           type="button"
-                          variant="outline"
+                          variant={copiedScript ? "default" : "outline"}
                           size="sm"
-                          onClick={() => {
-                            void navigator.clipboard.writeText(bookmarkletHref);
-                            toast.success("Sync script copied!");
-                          }}
-                          className="h-6 px-2 text-[10px] border-border/70 text-foreground"
+                          onClick={() => void handleCopyScript()}
+                          className={cn(
+                            "h-6 px-2 text-[10px] border-border/70 text-foreground transition-all cursor-pointer",
+                            copiedScript && "bg-stock text-black border-stock hover:bg-stock/90 font-semibold"
+                          )}
                         >
-                          <Copy className="size-3 mr-1" /> Copy Script
+                          {copiedScript ? (
+                            <>
+                              <Check className="size-3 mr-1" /> Copied!
+                            </>
+                          ) : (
+                            <>
+                              <Copy className="size-3 mr-1" /> Copy Script
+                            </>
+                          )}
                         </Button>
                       </div>
 
                       <ol className="space-y-1.5 text-muted-foreground list-decimal list-inside leading-relaxed text-[11px]">
                         <li>
-                          Tap <strong className="text-foreground">Copy Script</strong> above.
+                          Tap <strong className="text-foreground">Copy Script</strong> above (or tap inside the script box below to select).
                         </li>
                         <li>
                           Open{" "}
@@ -616,6 +638,31 @@ export function SettingsDialog({
                           While on <span className="text-foreground font-mono">shop.amul.com</span>, tap the Chrome URL bar, type <code className="font-mono text-foreground font-semibold px-1 py-0.5 rounded bg-muted">sync</code>, and tap the bookmark suggestion!
                         </li>
                       </ol>
+
+                      {/* Interactive Tap-to-Select Script Box for Mobile */}
+                      <div className="mt-2 pt-2 border-t border-border/40 flex flex-col gap-1">
+                        <div className="flex items-center justify-between text-[10px] text-muted-foreground">
+                          <span className="font-medium text-foreground">Sync Script (Tap to select & copy):</span>
+                          {copiedScript ? (
+                            <span className="text-stock flex items-center gap-1 font-medium">
+                              <Check className="size-3" /> Copied!
+                            </span>
+                          ) : (
+                            <span className="text-[10px] opacity-70">Tap box to select all</span>
+                          )}
+                        </div>
+                        <textarea
+                          readOnly
+                          value={bookmarkletHref}
+                          onClick={(e) => {
+                            e.currentTarget.focus();
+                            e.currentTarget.select();
+                            void handleCopyScript();
+                          }}
+                          rows={2}
+                          className="w-full rounded border border-border/70 bg-muted/60 p-2 font-mono text-[10px] text-foreground/85 select-all focus:outline-none focus:border-stock/50 resize-none cursor-pointer"
+                        />
+                      </div>
                     </div>
                   )}
 
@@ -644,13 +691,21 @@ export function SettingsDialog({
                         type="button"
                         variant="ghost"
                         size="sm"
-                        onClick={() => {
-                          void navigator.clipboard.writeText(bookmarkletHref);
-                          toast.success("Bookmarklet code copied to clipboard!");
-                        }}
-                        className="h-8 px-2 text-[11px] text-muted-foreground hover:text-foreground"
+                        onClick={() => void handleCopyScript()}
+                        className={cn(
+                          "h-8 px-2 text-[11px] text-muted-foreground hover:text-foreground transition-all cursor-pointer",
+                          copiedScript && "text-stock font-medium"
+                        )}
                       >
-                        <Copy className="size-3 mr-1" /> Copy Script
+                        {copiedScript ? (
+                          <>
+                            <Check className="size-3 mr-1 text-stock" /> Copied!
+                          </>
+                        ) : (
+                          <>
+                            <Copy className="size-3 mr-1" /> Copy Script
+                          </>
+                        )}
                       </Button>
                     </div>
                     <p className="text-[11px] text-muted-foreground pt-1">
