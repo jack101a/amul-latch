@@ -11,6 +11,7 @@ import {
   LoaderCircle,
   Phone,
   RefreshCw,
+  Send,
   Smartphone,
   Sparkles,
   Volume2,
@@ -51,6 +52,8 @@ type Props = {
   onChange: (patch: Partial<AppConfig>) => void;
   onTestWhatsApp?: () => void;
   whatsappBusy?: boolean;
+  onTestDiscord?: () => void;
+  discordBusy?: boolean;
   userProfile?: UserProfileInfo | null;
   onProfileVerified?: (profile: UserProfileInfo | null) => void;
   onDisconnect?: () => Promise<void> | void;
@@ -65,6 +68,8 @@ export function SettingsDialog({
   onChange,
   onTestWhatsApp,
   whatsappBusy,
+  onTestDiscord,
+  discordBusy,
   userProfile,
   onProfileVerified,
   onDisconnect,
@@ -864,14 +869,89 @@ export function SettingsDialog({
 
         <Separator />
 
+        {/* Discord Webhook Alerts */}
+        <section className="flex flex-col gap-3">
+          <div className="flex items-start justify-between gap-4">
+            <div className="space-y-0.5">
+              <div className="flex items-center gap-2">
+                <p className="text-sm font-medium">Discord Webhook Alerts</p>
+                <Badge variant="stock" className="text-[10px] px-1.5 py-0 font-mono">
+                  Recommended · 100% Free
+                </Badge>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Instant rich notifications with product photos, price, stock counts, and 1-click buy links directly to your Discord channel.
+              </p>
+            </div>
+            <Switch
+              checked={config.discordEnabled ?? false}
+              onCheckedChange={(v) => onChange({ discordEnabled: v })}
+              aria-label="Enable Discord Webhook"
+            />
+          </div>
+
+          <div className="rounded-lg border border-border/70 bg-muted/30 p-3 text-xs text-muted-foreground space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="font-semibold text-foreground">1-Minute Discord Setup:</span>
+              <span className="text-[11px] font-mono text-stock">Zero sign-ups required</span>
+            </div>
+            <ol className="list-decimal list-inside space-y-1.5 pl-1 text-[11px] leading-relaxed">
+              <li>In Discord (Desktop or Browser), go to your personal server channel.</li>
+              <li>Right-click the channel (or tap the gear ⚙️ <strong className="text-foreground">Edit Channel</strong>) → <strong className="text-foreground">Integrations</strong>.</li>
+              <li>Click <strong className="text-foreground">Webhooks</strong> → <strong className="text-foreground">New Webhook</strong> → click <strong className="text-foreground">Copy Webhook URL</strong>.</li>
+              <li>Paste the URL below and click <strong className="text-foreground">Send test Discord alert</strong>.</li>
+            </ol>
+            <p className="text-[10px] text-muted-foreground/80 pt-1 border-t border-border/40 leading-normal">
+              💡 Tip: Works on phones too! Install the Discord app on iOS or Android to get instant push notifications with rich cards whenever restocks occur.
+            </p>
+          </div>
+
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="discord-webhook-url">Discord Webhook URL</Label>
+            <Input
+              id="discord-webhook-url"
+              type="url"
+              placeholder="https://discord.com/api/webhooks/..."
+              value={config.discordWebhookUrl ?? ""}
+              onChange={(e) => onChange({ discordWebhookUrl: e.target.value })}
+              className="font-mono text-xs"
+            />
+            <span className="text-[10px] text-muted-foreground">
+              Format: https://discord.com/api/webhooks/&#123;id&#125;/&#123;token&#125;
+            </span>
+          </div>
+
+          <Button
+            type="button"
+            variant="secondary"
+            onClick={onTestDiscord}
+            disabled={discordBusy || !config.discordWebhookUrl}
+            className="w-full sm:w-auto self-start text-xs font-mono gap-1.5"
+          >
+            {discordBusy ? (
+              <>
+                <LoaderCircle className="size-3.5 animate-spin" />
+                <span>Sending Discord test…</span>
+              </>
+            ) : (
+              <>
+                <Send className="size-3.5 text-stock" />
+                <span>Send test Discord alert</span>
+              </>
+            )}
+          </Button>
+        </section>
+
+        <Separator />
+
         {/* WhatsApp Alerts (CallMeBot) */}
         <section className="flex flex-col gap-3">
           <div className="flex items-start justify-between gap-4">
             <div className="space-y-0.5">
               <div className="flex items-center gap-2">
                 <p className="text-sm font-medium">WhatsApp Alerts (CallMeBot)</p>
-                <Badge variant="stock" className="text-[10px] px-1.5 py-0">
-                  Recommended
+                <Badge variant="default" className="text-[10px] px-1.5 py-0 font-mono text-muted-foreground border border-border/60">
+                  Alternative
                 </Badge>
               </div>
               <p className="text-xs text-muted-foreground">

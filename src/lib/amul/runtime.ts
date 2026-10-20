@@ -1,8 +1,10 @@
 import { AmulClient } from "./client";
 import { runCheckout } from "./checkout";
 import { sendCallMeBot } from "./callmebot";
+import { sendDiscordWebhook, pingDiscord, type DiscordEmbed } from "./discord";
 import {
   DEFAULT_CONFIG,
+  productImageUrl,
   type ActivityEvent,
   type AmulProduct,
   type AppConfig,
@@ -271,6 +273,13 @@ export async function pingWhatsApp(phone: string, apiKey: string) {
   return result;
 }
 
+export async function pingDiscordAlert(webhookUrl: string) {
+  const result = await pingDiscord(webhookUrl);
+  if (result.ok) pushEvent("discord", "ok", "Discord test sent");
+  else pushEvent("discord", "error", "Discord test failed", result.error);
+  return result;
+}
+
 function schedule(ms: number) {
   const s = state();
   if (s.timer) clearTimeout(s.timer);
@@ -392,8 +401,25 @@ async function poll() {
   if (restocks.length) {
     for (const live of restocks) {
       pushEvent("restock", "ok", "Restock detected", live.name, live.sku);
+      const shopUrl = `https://shop.amul.com/en/product/${live.alias}`;
+      const imgUrl = productImageUrl(live.imageUrl);
       notify(
-        `🚨 RESTOCK: ${live.name}\n\nNow in stock for ${s.config.pincode}!\nPrice: ₹${live.price}\nShop: https://shop.amul.com/en/product/${live.alias}`,
+        `🚨 RESTOCK: ${live.name}\n\nNow in stock for ${s.config.pincode}!\nPrice: ₹${live.price}\nShop: ${shopUrl}`,
+        {
+          title: `🚨 RESTOCK: ${live.name}`,
+          url: shopUrl,
+          color: 0x2ecc71,
+          thumbnailUrl: imgUrl,
+          fields: [
+            { name: "Price", value: `₹${live.price}`, inline: true },
+            { name: "Available Stock", value: `${live.inventoryQuantity || live.available || 1} boxes`, inline: true },
+            ...(live.costPerGramProtein
+              ? [{ name: "Protein Value", value: `₹${live.costPerGramProtein}/g protein`, inline: true }]
+              : []),
+            { name: "Destination", value: `${s.config.pincode} (${s.substore?.name || "Amul Depot"})`, inline: true },
+            { name: "Store Link", value: `[Open on Amul Store](${shopUrl})`, inline: false },
+          ],
+        },
       );
       const trackedItem = tracked.find((t) => t.sku === live.sku);
       if (trackedItem && s.config.autoOrder) {
@@ -480,7 +506,16 @@ async function performCheckout(
     shopUrl: `https://shop.amul.com/en/product/${resolved.alias}`,
   };
   pushEvent("checkout_started", "ok", "Checkout started", resolved.name, resolved.sku);
-  notify(`Checkout started: ${resolved.name} × ${resolved.quantity}`);
+  notify(`Checkout started: ${resolved.name} × ${resolved.quantity}`, {
+    title: `🛒 Auto-Checkout Initiated: ${resolved.name}`,
+    url: `https://shop.amul.com/en/product/${resolved.alias}`,
+    color: 0x3498db,
+    fields: [
+      { name: "Product", value: resolved.name, inline: true },
+      { name: "Quantity", value: `${resolved.quantity}`, inline: true },
+      { name: "SKU", value: resolved.sku, inline: true },
+    ],
+  });
 
   if (!s.client) {
     s.checkout.status = "failed";
@@ -504,18 +539,49 @@ async function performCheckout(
         ``,
         `Approve in your UPI / bank app. Latch never asks for PIN, OTP, or CVV.`,
       ].join("\n"),
+      {
+        title: `💳 Action Required: Payment Authorization`,
+        url: attempt.paymentUrl || attempt.shopUrl || "https://shop.amul.com/en/cart",
+        color: 0xf39c12,
+        fields: [
+          { name: "Product", value: product.name, inline: false },
+          {
+            name: "Payment Action",
+            value: attempt.paymentUrl
+              ? `👉 [Authorize Payment on Amul](${attempt.paymentUrl})`
+              : `👉 [Open Cart & Pay](${attempt.shopUrl || "https://shop.amul.com/en/cart"})`,
+            inline: false,
+          },
+          { name: "Security Note", value: "Approve in your UPI / bank app. Latch never asks for OTP or PIN.", inline: false },
+        ],
+      },
     );
   } else if (attempt.status === "success") {
     pushEvent("order_success", "ok", "Order accepted", product.name, product.sku);
-    notify(`Order accepted: ${product.name}`);
+    notify(`Order accepted: ${product.name}`, {
+      title: `✅ Order Accepted: ${product.name}`,
+      color: 0x2ecc71,
+      fields: [
+        { name: "Product", value: product.name, inline: true },
+        { name: "Status", value: "Success / Order Placed", inline: true },
+      ],
+    });
   } else if (attempt.status === "blocked") {
     const isAddress = attempt.message.toLowerCase().includes("address");
     const title = isAddress ? "Delivery address required on Amul" : "Action required on Amul";
     pushEvent("order_failed", "warn", title, attempt.message, product.sku);
-    notify(`Paused: ${product.name}. ${attempt.message}`);
+    notify(`Paused: ${product.name}. ${attempt.message}`, {
+      title: `⚠️ Checkout Action Required: ${product.name}`,
+      color: 0xe67e22,
+      fields: [{ name: "Reason", value: attempt.message, inline: false }],
+    });
   } else {
     pushEvent("order_failed", "error", "Checkout failed", attempt.message, product.sku);
-    notify(`Checkout failed for ${product.name}: ${attempt.message}`);
+    notify(`Checkout failed for ${product.name}: ${attempt.message}`, {
+      title: `❌ Checkout Failed: ${product.name}`,
+      color: 0xe74c3c,
+      fields: [{ name: "Reason", value: attempt.message, inline: false }],
+    });
   }
 }
 
@@ -737,7 +803,15 @@ function pushEvent(
   if (s.events.length > 200) s.events.length = 200;
 }
 
-function notify(text: string) {
+export interface NotificationMeta {
+  title?: string;
+  url?: string;
+  color?: number;
+  fields?: { name: string; value: string; inline?: boolean }[];
+  thumbnailUrl?: string | null;
+}
+
+function notify(text: string, meta?: NotificationMeta) {
   const s = state();
   if (s.config.whatsappEnabled && s.config.whatsappPhone && s.config.whatsappApiKey) {
     const plain = text.replace(/<[^>]+>/g, "");
@@ -747,6 +821,25 @@ function notify(text: string) {
       text: plain,
     }).then((res) => {
       if (!res.ok) pushEvent("whatsapp", "error", "WhatsApp failed", res.error);
+    });
+  }
+
+  if (s.config.discordEnabled && s.config.discordWebhookUrl) {
+    const embed: DiscordEmbed = {
+      title: meta?.title || "⚡ Latch Amul Alert",
+      description: meta?.fields && meta.fields.length > 0 ? undefined : text,
+      url: meta?.url,
+      color: meta?.color ?? 0x6f8f6a,
+      fields: meta?.fields,
+      thumbnail: meta?.thumbnailUrl ? { url: meta.thumbnailUrl } : undefined,
+      footer: { text: "Latch Amul Radar" },
+      timestamp: new Date().toISOString(),
+    };
+    void sendDiscordWebhook({
+      webhookUrl: s.config.discordWebhookUrl,
+      embeds: [embed],
+    }).then((res) => {
+      if (!res.ok) pushEvent("discord", "error", "Discord webhook failed", res.error);
     });
   }
 }

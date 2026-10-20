@@ -30,6 +30,7 @@ import {
   startCheckout,
   startWatcher,
   stopWatcher,
+  testDiscord,
   testWhatsApp,
   tickWatcher,
   verifySessionCookie,
@@ -108,7 +109,7 @@ export function LatchDashboard() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [activityDrawerOpen, setActivityDrawerOpen] = useState(false);
   const [inlineActivityOpen, setInlineActivityOpen] = useState(false);
-  const [busy, setBusy] = useState<"pin" | "watch" | "checkout" | "whatsapp" | null>(null);
+  const [busy, setBusy] = useState<"pin" | "watch" | "checkout" | "whatsapp" | "discord" | null>(null);
   const [filter, setFilter] = useState<"all" | "watched" | "value" | "instock" | "out">("all");
   const [sort, setSort] = useState<SortMode>("default");
   const [mobileTab, setMobileTab] = useState<"catalog" | "watched" | "activity">("catalog");
@@ -638,6 +639,25 @@ export function LatchDashboard() {
       else toast.error(result.error || "WhatsApp test failed");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "WhatsApp test failed");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function sendDiscordTest() {
+    if (!config.discordWebhookUrl.trim()) {
+      toast.error("Enter a Discord webhook URL first");
+      return;
+    }
+    setBusy("discord");
+    try {
+      const result = await testDiscord({
+        data: { webhookUrl: config.discordWebhookUrl },
+      });
+      if (result.ok) toast.success("Discord test alert sent! Check your Discord channel.");
+      else toast.error(result.error || "Discord test failed");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Discord test failed");
     } finally {
       setBusy(null);
     }
@@ -1252,6 +1272,8 @@ export function LatchDashboard() {
         onOpenChange={setSettingsOpen}
         config={config}
         onChange={patch}
+        onTestDiscord={() => void sendDiscordTest()}
+        discordBusy={busy === "discord"}
         onTestWhatsApp={() => void sendWhatsAppTest()}
         whatsappBusy={busy === "whatsapp"}
         userProfile={userProfile}

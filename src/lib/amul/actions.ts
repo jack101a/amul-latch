@@ -8,6 +8,7 @@ import {
   disconnectSession,
   fetchCatalog,
   getSnapshot,
+  pingDiscordAlert,
   pingWhatsApp,
   setVerifiedProfile,
   startWatch,
@@ -35,6 +36,8 @@ const configSchema = z.object({
   whatsappEnabled: z.boolean().optional(),
   whatsappPhone: z.string().optional(),
   whatsappApiKey: z.string().optional(),
+  discordEnabled: z.boolean().optional(),
+  discordWebhookUrl: z.string().optional(),
   sessionCookie: z.string(),
   pollMinMs: z.number().int().min(500),
   pollMaxMs: z.number().int().min(500),
@@ -99,6 +102,12 @@ export const testWhatsApp = createServerFn({ method: "POST" })
   .validator(z.object({ phone: z.string(), apiKey: z.string() }))
   .handler(async ({ data }) => {
     return pingWhatsApp(data.phone, data.apiKey);
+  });
+
+export const testDiscord = createServerFn({ method: "POST" })
+  .validator(z.object({ webhookUrl: z.string() }))
+  .handler(async ({ data }) => {
+    return pingDiscordAlert(data.webhookUrl);
   });
 
 export const verifySessionCookie = createServerFn({ method: "POST" })

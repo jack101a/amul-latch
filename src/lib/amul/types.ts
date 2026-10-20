@@ -40,6 +40,7 @@ export type EventKind =
   | "order_success"
   | "order_failed"
   | "whatsapp"
+  | "discord"
   | "error";
 
 export type TrackedProduct = {
@@ -60,6 +61,8 @@ export type AppConfig = {
   whatsappEnabled: boolean;
   whatsappPhone: string;
   whatsappApiKey: string;
+  discordEnabled: boolean;
+  discordWebhookUrl: string;
   sessionCookie: string;
   pollMinMs: number;
   pollMaxMs: number;
@@ -171,6 +174,8 @@ export const DEFAULT_CONFIG: AppConfig = {
   whatsappEnabled: false,
   whatsappPhone: "",
   whatsappApiKey: "",
+  discordEnabled: false,
+  discordWebhookUrl: "",
   sessionCookie: "",
   pollMinMs: 6000,
   pollMaxMs: 40000,
