@@ -29,6 +29,8 @@ export type EventLevel = "info" | "ok" | "warn" | "error";
 export type EventKind =
   | "watch_started"
   | "watch_stopped"
+  | "watch_dormant"
+  | "watch_resumed"
   | "session_ready"
   | "session_expired"
   | "pincode_set"

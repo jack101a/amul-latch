@@ -185,16 +185,26 @@ export function LatchDashboard() {
 
   useEffect(() => {
     if (!hydrated) return;
+    // Smart status polling cadence:
+    // If watching and has tracked products: 3000ms.
+    // If idle, dormant, or empty watchlist: 12000ms (saves CPU, network, server memory).
+    const isActivelyWatching = Boolean(snap?.watching && (config.products?.length || 0) > 0);
+    const intervalMs = isActivelyWatching ? 3000 : 12000;
+
     const id = window.setInterval(() => {
+      // If tab is in background and idle, skip polling
+      if (typeof document !== "undefined" && document.hidden && !isActivelyWatching) {
+        return;
+      }
       void getWatchStatus()
         .then((s) => {
           setSnap(s);
           if (s.products.length) setCatalog(s.products);
         })
         .catch(() => undefined);
-    }, 2500);
+    }, intervalMs);
     return () => window.clearInterval(id);
-  }, [hydrated]);
+  }, [hydrated, snap?.watching, config.products?.length]);
 
   useEffect(() => {
     if (!hydrated || resumed.current) return;
@@ -211,7 +221,7 @@ export function LatchDashboard() {
   }, [hydrated, config]);
 
   useEffect(() => {
-    if (!snap?.watching) return;
+    if (!snap?.watching || !config.products?.length) return;
     const id = window.setInterval(() => {
       const last = snap.lastTickAt ? Date.parse(snap.lastTickAt) : 0;
       const due = !last || Date.now() - last > Math.max(snap.nextPollMs, config.pollMinMs) * 0.85;

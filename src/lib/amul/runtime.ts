@@ -198,8 +198,26 @@ export function getSnapshot(): WatchSnapshot {
 
 export function applyConfig(partial: Partial<AppConfig>) {
   const s = state();
+  const prevCount = s.config.products?.length || 0;
   s.config = { ...s.config, ...partial };
   savePersistedConfig(s.config);
+
+  const newCount = s.config.products?.length || 0;
+  // If we transitioned to 0 products while watching, enter dormant mode immediately
+  if (s.watching && newCount === 0 && prevCount > 0) {
+    if (s.timer) {
+      clearTimeout(s.timer);
+      s.timer = null;
+    }
+    pushEvent("watch_dormant", "info", "Watcher dormant", "Watchlist emptied — entered 0-resource standby mode");
+    if (typeof (globalThis as unknown as { gc?: () => void }).gc === "function") {
+      try { (globalThis as unknown as { gc: () => void }).gc(); } catch { /* ignore */ }
+    }
+  } else if (s.watching && newCount > 0 && !s.timer && !s.inFlight) {
+    // Products added to watchlist: wake up watcher immediately
+    pushEvent("watch_resumed", "ok", "Watcher active", `Monitoring ${newCount} SKU(s)`);
+    schedule(0);
+  }
 }
 
 export async function fetchCatalog(pincode: string): Promise<{
@@ -240,6 +258,24 @@ export async function startWatch(config: AppConfig) {
   s.watching = true;
   s.lastError = null;
   s.nextPollMs = s.config.pollMinMs;
+
+  if (!config.products.length) {
+    if (s.timer) {
+      clearTimeout(s.timer);
+      s.timer = null;
+    }
+    pushEvent(
+      "watch_dormant",
+      "info",
+      "Watcher on standby",
+      "Watchlist is empty — 0 CPU/network idle mode active",
+    );
+    if (typeof (globalThis as unknown as { gc?: () => void }).gc === "function") {
+      try { (globalThis as unknown as { gc: () => void }).gc(); } catch { /* ignore */ }
+    }
+    return getSnapshot();
+  }
+
   if (!same) {
     pushEvent(
       "watch_started",
@@ -261,6 +297,9 @@ export function stopWatch() {
     s.timer = null;
   }
   pushEvent("watch_stopped", "info", "Watcher stopped");
+  if (typeof (globalThis as unknown as { gc?: () => void }).gc === "function") {
+    try { (globalThis as unknown as { gc: () => void }).gc(); } catch { /* ignore */ }
+  }
   return getSnapshot();
 }
 
@@ -292,10 +331,17 @@ function schedule(ms: number) {
   const s = state();
   if (s.timer) clearTimeout(s.timer);
   if (!s.watching) return;
+  // If nothing is watched, go dormant! No polling timer needed.
+  if (!s.config.products || s.config.products.length === 0) {
+    s.timer = null;
+    return;
+  }
   s.timer = setTimeout(() => {
     s.timer = null;
     void runCycle(true).finally(() => {
-      if (s.watching) schedule(jitter(s.nextPollMs));
+      if (s.watching && s.config.products && s.config.products.length > 0) {
+        schedule(jitter(s.nextPollMs));
+      }
     });
   }, ms);
 }
@@ -303,6 +349,9 @@ function schedule(ms: number) {
 async function runCycle(force = false) {
   const s = state();
   if (s.inFlight) return s.inFlight;
+  if (!s.watching || !s.config.products || s.config.products.length === 0) {
+    return;
+  }
   if (
     !force &&
     s.lastTickAt &&
@@ -334,6 +383,10 @@ async function runCycle(force = false) {
 
 async function poll() {
   const s = state();
+  // Dormant check: if no products are being tracked, skip all network traffic & processing
+  if (!s.config.products || s.config.products.length === 0) {
+    return;
+  }
   if (!s.config.pincode) throw new Error("Set a pincode first");
   const client = await ensureClient(s.config.pincode);
   if (!s.substore || s.substore.pincode !== s.config.pincode || s.pollCount % 20 === 0) {
@@ -545,6 +598,7 @@ function sameWatch(a: AppConfig, b: AppConfig): boolean {
 function derivePhase(s: RuntimeState): WatchPhase {
   if (!s.watching) return s.lastError ? "error" : "idle";
   if (s.lastError && !s.amulReachable) return "error";
+  if (!s.config.products || !s.config.products.length) return "idle";
   if (s.config.products.some((t) => s.products.find((p) => p.sku === t.sku)?.inStock)) return "restock";
   return "watching";
 }

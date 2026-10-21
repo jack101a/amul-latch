@@ -29,7 +29,8 @@ WORKDIR /app
 
 ENV NODE_ENV=production \
     PORT=8082 \
-    HOST=0.0.0.0
+    HOST=0.0.0.0 \
+    NODE_OPTIONS="--max-old-space-size=48 --expose-gc"
 
 # Copy cached dependencies
 COPY --from=dependencies /app/node_modules ./node_modules
@@ -37,4 +38,4 @@ COPY --from=build /app ./
 
 EXPOSE 8082
 
-CMD ["npm", "run", "start"]
+CMD ["node", "scripts/with-app-env.mjs", "./node_modules/.bin/vite", "preview", "--host", "0.0.0.0", "--port", "8082"]
