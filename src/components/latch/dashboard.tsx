@@ -48,10 +48,10 @@ import { SettingsDialog } from "./settings-dialog";
 import { cn } from "@/lib/utils";
 
 const STANDARD_HUBS = [
+  { city: "Mumbai", pin: "400068" },
   { city: "Ahmedabad", pin: "380009" },
   { city: "Bengaluru", pin: "560001" },
   { city: "Delhi", pin: "110001" },
-  { city: "Mumbai", pin: "400001" },
 ] as const;
 
 function formatPollingInterval(ms: number): string {
@@ -70,7 +70,7 @@ export function LatchDashboard() {
   const [hydrated, setHydrated] = useState(false);
   const [snap, setSnap] = useState<WatchSnapshot | null>(null);
   const [catalog, setCatalog] = useState<AmulProduct[]>([]);
-  const [pinInput, setPinInput] = useState("");
+  const [pinInput, setPinInput] = useState(DEFAULT_CONFIG.pincode || "400068");
   const [query, setQuery] = useState("");
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [activityDrawerOpen, setActivityDrawerOpen] = useState(false);
@@ -1101,13 +1101,13 @@ function EmptyState({ onQuickPick }: { onQuickPick: (pin: string) => void }) {
 
       <div className="grid gap-3 sm:grid-cols-3 text-xs">
         <div
-          onClick={() => onQuickPick("560001")}
+          onClick={() => onQuickPick("400068")}
           className="rounded-lg bg-muted/50 hover:bg-muted border border-border/60 p-4 transition-all cursor-pointer group"
         >
           <p className="font-mono text-xs text-stock font-semibold">01 · SELECT HUB</p>
-          <p className="mt-1 font-medium text-foreground text-sm">Bengaluru (560001)</p>
+          <p className="mt-1 font-medium text-foreground text-sm">Mumbai (400068)</p>
           <p className="mt-1 text-[11px] text-muted-foreground">
-            Tap to load live south zone protein catalog immediately.
+            Mumbai West & Central distribution depot with full protein catalog.
           </p>
         </div>
 
@@ -1123,13 +1123,13 @@ function EmptyState({ onQuickPick }: { onQuickPick: (pin: string) => void }) {
         </div>
 
         <div
-          onClick={() => onQuickPick("110001")}
+          onClick={() => onQuickPick("560001")}
           className="rounded-lg bg-muted/50 hover:bg-muted border border-border/60 p-4 transition-all cursor-pointer group"
         >
           <p className="font-mono text-xs text-stock font-semibold">03 · SELECT HUB</p>
-          <p className="mt-1 font-medium text-foreground text-sm">Delhi (110001)</p>
+          <p className="mt-1 font-medium text-foreground text-sm">Bengaluru (560001)</p>
           <p className="mt-1 text-[11px] text-muted-foreground">
-            North India distribution depot for instant restock monitoring.
+            South India distribution depot for instant restock monitoring.
           </p>
         </div>
       </div>

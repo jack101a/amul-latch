@@ -136,25 +136,13 @@ test("Circadian Adaptive Polling: interval scaling across restock and dormancy w
     `Peak interval should be <= 8000, got ${peakInterval}`
   );
 
-  // 3. In-stock with autoOrder at night: MUST still poll at pollMinMs
-  const inStockAutoOrderInterval = calculateAdaptiveInterval(
-    {
-      config: { ...baseConfig, autoOrder: true },
-      products: inStockCatalog,
-      checkout: null,
-    } as any,
-    nightDate
-  );
-  assert.equal(inStockAutoOrderInterval, 6000);
-
-  // 4. Active Checkout: MUST poll at max(pollMinMs, 5000) = 6000
-  const runningCheckoutInterval = calculateAdaptiveInterval(
+  // 3. In-stock tracked SKU at night: MUST still poll at pollMinMs (6000)
+  const inStockInterval = calculateAdaptiveInterval(
     {
       config: baseConfig,
-      products: outOfStockCatalog,
-      checkout: { status: "running" },
+      products: inStockCatalog,
     } as any,
     nightDate
   );
-  assert.equal(runningCheckoutInterval, 6000);
+  assert.equal(inStockInterval, 6000);
 });

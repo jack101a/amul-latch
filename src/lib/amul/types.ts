@@ -159,7 +159,7 @@ export type WatchSnapshot = {
 };
 
 export const DEFAULT_CONFIG: AppConfig = {
-  pincode: "",
+  pincode: "400068",
   products: [],
   soundEnabled: true,
   whatsappEnabled: false,
