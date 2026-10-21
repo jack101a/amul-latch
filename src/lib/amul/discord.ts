@@ -19,12 +19,22 @@ export interface DiscordEmbed {
   timestamp?: string;
 }
 
+export interface DiscordComponent {
+  type: number;
+  components?: DiscordComponent[];
+  style?: number;
+  label?: string;
+  url?: string;
+  emoji?: { name?: string; id?: string };
+}
+
 export interface SendDiscordWebhookInput {
   webhookUrl: string;
   username?: string;
   avatar_url?: string;
   content?: string;
   embeds?: DiscordEmbed[];
+  components?: DiscordComponent[];
   file?: {
     buffer: Buffer;
     filename: string;
@@ -73,6 +83,9 @@ export async function sendDiscordWebhook(
   if (input.content) payload.content = input.content;
   if (input.embeds && input.embeds.length > 0) {
     payload.embeds = input.embeds;
+  }
+  if (input.components && input.components.length > 0) {
+    payload.components = input.components;
   }
 
   try {
@@ -133,24 +146,35 @@ export async function pingDiscord(webhookUrl: string): Promise<SendDiscordWebhoo
     embeds: [
       {
         author: {
-          name: "AMUL • WHEY PROTEIN",
+          name: "Amul Chocolate Whey Protein (30 Sachets)",
           icon_url: sampleImgUrl,
+          url: sampleShopUrl,
         },
-        title: "Amul Chocolate Whey Protein (30 Sachets)",
-        url: sampleShopUrl,
         color: 0xffffff,
         description: [
-          "🏷️ **Price:** **₹2,500**",
-          "📦 **Live Stock:** 🟢 **549 boxes available**",
+          "## ₹2,500  •  🟢 549 qty",
           "",
-          "💪 **Protein Yield:** 750g total · 25g/sachet",
-          "⚡ **Value:** ₹2.45/g",
+          "-# PROTEIN & VALUE",
+          "💪 **750g** total (25g/sachet)  •  ⚡ **₹2.45/g**",
           "",
-          `👉 ### [⚡ Buy on Amul Store ↗](${sampleShopUrl})`,
+          `👉 [**⚡ Buy on Amul Store ↗**](${sampleShopUrl})`,
         ].join("\n"),
         image: { url: sampleImgUrl },
         footer: { text: "Latch Amul Radar • Non-Custodial Zero-Auth" },
         timestamp: new Date().toISOString(),
+      },
+    ],
+    components: [
+      {
+        type: 1,
+        components: [
+          {
+            type: 2,
+            style: 5,
+            label: "⚡ Buy on Amul Store ↗",
+            url: sampleShopUrl,
+          },
+        ],
       },
     ],
   });
