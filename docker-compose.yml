@@ -1,58 +1,29 @@
-# ==============================================================================
-# Amul Protein Tracker — Portainer Production Stack
-# Reference architecture matching sarathi-stack & eazyfill-stack
-# ==============================================================================
-
-x-app-env: &app-env
-  TZ: ${TZ:-Asia/Kolkata}
-  NODE_ENV: ${NODE_ENV:-production}
-  NODE_OPTIONS: "--max-old-space-size=64"
-  PORT: ${PORT:-8082}
-  HOST: ${HOST:-0.0.0.0}
-  PINCODE: ${PINCODE:-400068}
-  DISCORD_ENABLED: ${DISCORD_ENABLED:-true}
-  DISCORD_WEBHOOK_URL: ${DISCORD_WEBHOOK_URL:-}
-  WHATSAPP_ENABLED: ${WHATSAPP_ENABLED:-false}
-  WHATSAPP_PHONE: ${WHATSAPP_PHONE:-}
-  WHATSAPP_APIKEY: ${WHATSAPP_APIKEY:-}
-
-x-app-volumes: &app-volumes
-  - ${CONFIG_PATH:-/srv/ajaxhs/config}/amul-protein-tracker/data:/app/data
-
 services:
   amul-protein-tracker:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    image: ghcr.io/jack101a/amul-protein-tracker:latest
     container_name: amul_protein_tracker
     restart: unless-stopped
-    init: true
-    environment:
-      <<: *app-env
-    volumes: *app-volumes
     ports:
-      - "${PORT:-8082}:8082"
+      - "8082:8082"
+    environment:
+      - TZ=Asia/Kolkata
+      - NODE_ENV=production
+      - NODE_OPTIONS=--max-old-space-size=64
+      - PORT=8082
+      - PINCODE=400068
+      - DISCORD_ENABLED=true
+      - DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/1562369001768615977/UE7oBJ98t7jcetEb0sEIEUnIkKe8PeHL1vXj-OTw96YT51URyBlEUY70WzdDwCNBCTw4
+    volumes:
+      - /srv/ajaxhs/config/amul-protein-tracker/data:/app/data
     deploy:
       resources:
         limits:
           cpus: "0.50"
           memory: 100M
         reservations:
-          cpus: "0.10"
           memory: 50M
     cpus: 0.5
     mem_limit: 100m
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
-    healthcheck:
-      test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:' + (process.env.PORT || 8082) + '/').then(r => r.ok ? process.exit(0) : process.exit(1)).catch(() => process.exit(1))\""]
-      interval: 30s
-      timeout: 5s
-      start_period: 15s
-      retries: 3
     networks:
       - ajax_network
 
