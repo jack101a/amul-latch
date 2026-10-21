@@ -282,8 +282,18 @@ export function extractProteinGrams(name: string, alias?: string): number | null
   }
 
   // 6. Whey sachet handling:
-  // Amul Whey Protein sachets are 32g-34g gross powder weight containing 25g protein.
-  if (baseGrams === null && text.includes("sachet") && (text.includes("whey") || text.includes("32") || text.includes("34"))) {
+  // Amul Whey Protein sachets are 32g-34g gross powder weight containing 24g-25g protein.
+  if (
+    baseGrams === null &&
+    text.includes("whey") &&
+    (text.includes("32") || text.includes("34") || text.includes("sachet"))
+  ) {
+    baseGrams = text.includes("32") ? 24 : 25;
+  } else if (
+    baseGrams === null &&
+    text.includes("sachet") &&
+    (text.includes("32") || text.includes("34"))
+  ) {
     baseGrams = 25;
   }
 
@@ -328,4 +338,40 @@ export function calculateProteinCostPerGram(
   }
   return null;
 }
+
+/**
+ * Formats protein yield into a crisp mobile-friendly specification string:
+ * e.g. "750g · 25g/sachet" or "600g · 20g/shake"
+ */
+export function formatProteinYield(
+  name: string,
+  alias?: string,
+  totalProteinGrams?: number | null,
+): string | null {
+  const grams = totalProteinGrams ?? extractProteinGrams(name, alias);
+  if (!grams || grams <= 0) return null;
+
+  const multiplier = extractPackMultiplier(name, alias);
+  const perServing = multiplier > 1 ? Math.round(grams / multiplier) : grams;
+
+  let unit = "serving";
+  const text = `${name || ""} ${alias || ""}`.toLowerCase();
+  if (text.includes("sachet") || text.includes("whey")) {
+    unit = "sachet";
+  } else if (text.includes("shake") || text.includes("smoothie") || text.includes("kool")) {
+    unit = "shake";
+  } else if (text.includes("buttermilk") || text.includes("chaas") || text.includes("lassi")) {
+    unit = "bottle";
+  } else if (text.includes("paneer")) {
+    unit = "pack";
+  } else if (multiplier > 1) {
+    unit = "unit";
+  }
+
+  if (multiplier > 1) {
+    return `${grams}g · ${perServing}g/${unit}`;
+  }
+  return `${grams}g (${perServing}g/${unit})`;
+}
+
 

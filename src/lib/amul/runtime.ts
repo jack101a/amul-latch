@@ -4,6 +4,7 @@ import { sendDiscordWebhook, pingDiscord, type DiscordEmbed } from "./discord";
 import {
   DEFAULT_CONFIG,
   productImageUrl,
+  formatProteinYield,
   type ActivityEvent,
   type AmulProduct,
   type AppConfig,
@@ -335,50 +336,37 @@ async function poll() {
       const isShake = /shake|buttermilk|lassi|milk/i.test(live.name);
       const color = isWhey ? 0x00e676 : isShake ? 0x00b0ff : 0xffd600;
 
-      const embedFields: { name: string; value: string; inline?: boolean }[] = [
-        { name: "🏷️ Price", value: `**₹${live.price.toLocaleString("en-IN")}**`, inline: true },
-        { name: "📦 Live Stock", value: `**🟢 ${stockUnits} boxes** available`, inline: true },
-        {
-          name: "📍 Regional Hub",
-          value: `**${s.config.pincode}** (${s.substore?.name || "Amul Depot"})`,
-          inline: true,
-        },
+      const yieldStr = formatProteinYield(live.name, live.alias, live.proteinGrams);
+      const unitLabel = isWhey ? "boxes" : isShake ? "cases" : "boxes";
+      const depotName = s.substore?.name || "Gujarat HQ";
+
+      const descLines: string[] = [
+        `🏷️ **Price:** ₹${live.price.toLocaleString("en-IN")}`,
+        `📦 **Live Stock:** 🟢 **${stockUnits} ${unitLabel}** available`,
       ];
 
-      if (live.proteinGrams) {
-        embedFields.push({
-          name: "💪 Protein Content",
-          value: `**${live.proteinGrams}g** total protein`,
-          inline: true,
-        });
+      if (yieldStr) {
+        descLines.push(`💪 **Protein Yield:** ${yieldStr}`);
       }
 
       if (live.costPerGramProtein) {
         const isBestValue = live.costPerGramProtein <= 2.5;
-        embedFields.push({
-          name: "⚡ Protein Economics",
-          value: `**₹${live.costPerGramProtein}/g** ${isBestValue ? "*(🔥 Best Value)*" : ""}`,
-          inline: true,
-        });
+        descLines.push(`⚡ **Value Tier:** ₹${live.costPerGramProtein}/g${isBestValue ? " 🔥 *Best Value*" : ""}`);
       }
 
-      embedFields.push({
-        name: "🚀 Quick Purchase Action",
-        value: `👉 **[TAP HERE TO BUY ON SHOP.AMUL.COM](${shopUrl})**\n*(Instant redirect to product page in browser/app)*`,
-        inline: false,
-      });
+      descLines.push(`📍 **Regional Hub:** ${s.config.pincode} · ${depotName}`);
+      descLines.push("");
+      descLines.push(`### [⚡ Buy on Amul Store →](${shopUrl})`);
 
       notify(
         `🚨 **RESTOCK ALERT:** **${live.name}** is now IN STOCK (${stockUnits} available) at **${s.config.pincode}**! 👉 ${shopUrl}`,
         {
-          title: `🚨 RESTOCK: ${live.name}`,
-          description: `**${live.name}** has just flipped **IN STOCK** for delivery hub **${s.config.pincode}**!\n⚡ *Demand is high and stock clears rapidly. Tap the link below to purchase.*`,
+          title: `🚨 In Stock: ${live.name}`,
+          description: descLines.join("\n"),
           url: shopUrl,
           color,
           thumbnailUrl: imgUrl,
-          imageUrl: imgUrl,
-          fields: embedFields,
-          footerText: `📡 Latch Amul Restock Radar • SKU: ${live.sku}`,
+          footerText: `Latch Amul Radar • ${s.config.pincode}`,
         },
       );
     }
@@ -504,6 +492,7 @@ function pushEvent(
 }
 
 export interface NotificationMeta {
+  authorName?: string;
   title?: string;
   description?: string;
   url?: string;
@@ -529,14 +518,15 @@ function notify(text: string, meta?: NotificationMeta) {
 
   if (s.config.discordEnabled && s.config.discordWebhookUrl) {
     const embed: DiscordEmbed = {
+      author: meta?.authorName ? { name: meta.authorName } : undefined,
       title: meta?.title || "⚡ Latch Amul Alert",
       description: meta?.description || (meta?.fields && meta.fields.length > 0 ? undefined : text),
       url: meta?.url,
-      color: meta?.color ?? 0x6f8f6a,
+      color: meta?.color ?? 0x00e676,
       fields: meta?.fields,
       thumbnail: meta?.thumbnailUrl ? { url: meta.thumbnailUrl } : undefined,
       image: meta?.imageUrl ? { url: meta.imageUrl } : undefined,
-      footer: { text: meta?.footerText || "📡 Latch Amul Radar · Non-Custodial Zero-Auth" },
+      footer: { text: meta?.footerText || "Latch Amul Radar • Non-Custodial Zero-Auth" },
       timestamp: new Date().toISOString(),
     };
     void sendDiscordWebhook({

@@ -5,6 +5,7 @@ export interface DiscordEmbedField {
 }
 
 export interface DiscordEmbed {
+  author?: { name: string; url?: string; icon_url?: string };
   title?: string;
   description?: string;
   url?: string;
@@ -98,34 +99,32 @@ export async function sendDiscordWebhook(
 
 /**
  * Sends a test notification to verify that the webhook is valid and working.
+ * Showcases the mobile-first clean restock alert format with small thumbnail and high-signal telemetry.
  */
 export async function pingDiscord(webhookUrl: string): Promise<SendDiscordWebhookResult> {
+  const sampleShopUrl = "https://shop.amul.com/en/product/amul-chocolate-whey-protein-cartong-1020kg";
+  const sampleImgUrl =
+    "https://shop.amul.com/s/62fa94df8c13af2e242eba16/6a4e2160fdab14de18031795/01-hero-image_amul-whey-protein-carton-chocolateg-1020kg.png";
+
   return sendDiscordWebhook({
     webhookUrl,
     username: "⚡ Latch Amul Radar",
     embeds: [
       {
-        title: "📡 LATCH AMUL RADAR · TELEMETRY ONLINE",
-        description:
-          "🎯 **Discord Webhook Channel Connected Successfully!**\n\nLatch is actively scanning Amul regional substores and fulfillment hubs. When any watched protein product restocks in your delivery area, an instant rich alert with live stock quantities, protein economics, product photos, and 1-tap checkout links will be dispatched here.",
-        url: "https://shop.amul.com",
-        color: 0x00e676, // Cyber Emerald Green
-        fields: [
-          { name: "📡 Radar Status", value: "Operational 🟢", inline: true },
-          { name: "⚡ Polling Engine", value: "Adaptive REST ⚡", inline: true },
-          { name: "🛡️ Architecture", value: "Zero-Auth & Safe 🛡️", inline: true },
-          {
-            name: "📦 Monitored Categories",
-            value: "Whey Protein (Raw & Chocolate), High Protein Shakes, Buttermilk, Paneer",
-            inline: false,
-          },
-          {
-            name: "🚀 Quick Link",
-            value: "👉 [Browse Live Store on shop.amul.com](https://shop.amul.com)",
-            inline: false,
-          },
-        ],
-        footer: { text: "Latch Amul Protein Restock Radar • Ready to alert" },
+        title: "🚨 In Stock: Amul Chocolate Whey Protein (30 Sachets)",
+        url: sampleShopUrl,
+        color: 0x00e676,
+        thumbnail: { url: sampleImgUrl },
+        description: [
+          "🏷️ **Price:** ₹2,500",
+          "📦 **Live Stock:** 🟢 **549 boxes** available",
+          "💪 **Protein Yield:** 750g · 25g/sachet",
+          "⚡ **Value Tier:** ₹2.45/g 🔥 *Best Value*",
+          "📍 **Regional Hub:** 380009 · Gujarat HQ",
+          "",
+          `### [⚡ Buy on Amul Store →](${sampleShopUrl})`,
+        ].join("\n"),
+        footer: { text: "Latch Amul Radar • Test Notification • Channel Connected" },
         timestamp: new Date().toISOString(),
       },
     ],
