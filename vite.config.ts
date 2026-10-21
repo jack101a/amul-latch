@@ -150,11 +150,13 @@ export default defineConfig(({ command, isPreview }) => ({
     host: "0.0.0.0",
     port: Number(process.env.PORT || 8082),
     strictPort: false,
+    allowedHosts: true,
   },
   preview: {
-    host: "127.0.0.1",
-    port: Number(process.env.PREVIEW_PORT || 8081),
+    host: "0.0.0.0",
+    port: Number(process.env.PORT || 8082),
     strictPort: false,
+    allowedHosts: true,
   },
   resolve: { tsconfigPaths: true },
   plugins: [
