@@ -180,7 +180,8 @@ export function productImageUrl(image: string | undefined | null): string | null
   return `${AMUL_ORIGIN}/s/${AMUL_STORE_ID}/${clean}`;
 }
 
-export function productPageUrl(alias: string): string {
+export function productPageUrl(alias?: string): string {
+  if (!alias) return `${AMUL_ORIGIN}`;
   return `${AMUL_ORIGIN}/en/product/${alias}`;
 }
 

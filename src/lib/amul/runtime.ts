@@ -5,6 +5,7 @@ import { renderProductCardPng } from "./card";
 import {
   DEFAULT_CONFIG,
   productImageUrl,
+  productPageUrl,
   formatProteinYield,
   type ActivityEvent,
   type AmulProduct,
@@ -330,17 +331,14 @@ async function poll() {
   if (restocks.length) {
     for (const live of restocks) {
       pushEvent("restock", "ok", "Restock detected", live.name, live.sku);
-      const shopUrl = `https://shop.amul.com/en/product/${live.alias}`;
+      const shopUrl = live.productUrl || productPageUrl(live.alias);
       const imgUrl = productImageUrl(live.imageUrl);
       const stockUnits = live.inventoryQuantity || live.available || 1;
       const isWhey = /whey/i.test(live.name);
       const isShake = /shake|buttermilk|lassi|milk/i.test(live.name);
-      const color = isWhey ? 0x00e676 : isShake ? 0x00b0ff : 0xffd600;
-
+      const isPaneer = /paneer/i.test(live.name);
+      const unitLabel = isWhey ? "boxes" : isShake ? "cases" : isPaneer ? "packs" : "units";
       const yieldStr = formatProteinYield(live.name, live.alias, live.proteinGrams);
-      const unitLabel = isWhey ? "boxes" : isShake ? "cases" : "boxes";
-      const depotName = s.substore?.name || "Gujarat HQ";
-      const headerCategory = productCategoryHeader(live.name);
 
       const descLines: string[] = [
         `## ₹${live.price.toLocaleString("en-IN")}  •  🟢 ${stockUnits} ${unitLabel}`,

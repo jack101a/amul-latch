@@ -136,7 +136,7 @@ export async function sendDiscordWebhook(
  * Showcases the clean mobile-friendly Discord embed layout.
  */
 export async function pingDiscord(webhookUrl: string): Promise<SendDiscordWebhookResult> {
-  const sampleShopUrl = "https://shop.amul.com/en/product/amul-chocolate-whey-protein-cartong-1020kg";
+  const sampleShopUrl = "https://shop.amul.com/en/product/amul-chocolate-whey-protein-carton-1020g";
   const sampleImgUrl =
     "https://shop.amul.com/s/62fa94df8c13af2e242eba16/6a4e2160fdab14de18031795/01-hero-image_amul-whey-protein-carton-chocolateg-1020kg.png";
 
