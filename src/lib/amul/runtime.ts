@@ -252,14 +252,8 @@ async function runCycle(force = false) {
       s.lastError = message;
       s.amulReachable = !/fetch|network|timeout|HTML/i.test(message);
       s.nextPollMs = Math.min(s.config.pollMaxMs * 1.5, Math.max(s.nextPollMs * 2, 12000));
-      s.sessionReady = false;
-      if (/session expired|TID|401|403/i.test(message)) {
-        s.client = null;
-        pushEvent("session_expired", "warn", "Amul session expired — reconnecting");
-        notify("Amul session expired. Latch is reconnecting.");
-      } else {
-        pushEvent("error", "error", "Poll error", message);
-      }
+      s.sessionReady = true;
+      pushEvent("error", "warn", "Amul catalog refresh retry", message);
     } finally {
       s.lastTickAt = Date.now();
       s.pollCount += 1;
