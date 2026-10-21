@@ -4,17 +4,20 @@ services:
     container_name: amul_protein_tracker
     restart: unless-stopped
     ports:
-      - "8082:8082"
+      - "${PORT:-8082}:8082"
     environment:
-      - TZ=Asia/Kolkata
-      - NODE_ENV=production
+      - TZ=${TZ:-Asia/Kolkata}
+      - NODE_ENV=${NODE_ENV:-production}
       - NODE_OPTIONS=--max-old-space-size=64
-      - PORT=8082
-      - PINCODE=400068
-      - DISCORD_ENABLED=true
-      - DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/1562369001768615977/UE7oBJ98t7jcetEb0sEIEUnIkKe8PeHL1vXj-OTw96YT51URyBlEUY70WzdDwCNBCTw4
+      - PORT=${PORT:-8082}
+      - PINCODE=${PINCODE:-400068}
+      - DISCORD_ENABLED=${DISCORD_ENABLED:-false}
+      - DISCORD_WEBHOOK_URL=${DISCORD_WEBHOOK_URL:-}
+      - WHATSAPP_ENABLED=${WHATSAPP_ENABLED:-false}
+      - WHATSAPP_PHONE=${WHATSAPP_PHONE:-}
+      - WHATSAPP_APIKEY=${WHATSAPP_APIKEY:-}
     volumes:
-      - /srv/ajaxhs/config/amul-protein-tracker/data:/app/data
+      - ${CONFIG_PATH:-/srv/ajaxhs/config}/amul-protein-tracker/data:/app/data
     deploy:
       resources:
         limits:
