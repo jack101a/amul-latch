@@ -343,40 +343,22 @@ async function poll() {
       const headerCategory = productCategoryHeader(live.name);
 
       const descLines: string[] = [
-        `💰 **Price:** **₹${live.price.toLocaleString("en-IN")}**`,
-        `📦 **Stock:** 🟢 **${stockUnits} ${unitLabel}** available`,
+        `🏷️ **Price:** ₹${live.price.toLocaleString("en-IN")}`,
+        `📦 **Live Stock:** 🟢 **${stockUnits} ${unitLabel}** available`,
       ];
 
       if (yieldStr) {
-        descLines.push(`💪 **Yield:** ${yieldStr}`);
+        descLines.push(`💪 **Protein Yield:** ${yieldStr}`);
       }
 
       if (live.costPerGramProtein) {
         const isBestValue = live.costPerGramProtein <= 2.5;
-        descLines.push(`⚡ **Value:** ₹${live.costPerGramProtein}/g${isBestValue ? " 🔥 **Best Value**" : ""}`);
+        descLines.push(`⚡ **Value Tier:** ₹${live.costPerGramProtein}/g${isBestValue ? " 🔥 *Best Value*" : ""}`);
       }
 
-      descLines.push(`📍 **Hub:** ${s.config.pincode} · ${depotName}`);
+      descLines.push(`📍 **Regional Hub:** ${s.config.pincode} · ${depotName}`);
       descLines.push("");
       descLines.push(`👉 [**⚡ Buy on Amul Store ↗**](${shopUrl})`);
-
-      let cardBuffer: Buffer | undefined;
-      try {
-        cardBuffer = await renderProductCardPng({
-          category: headerCategory,
-          name: live.name,
-          priceINR: live.price,
-          stockUnits,
-          unitLabel,
-          yieldText: yieldStr,
-          costPerGram: live.costPerGramProtein,
-          pincode: s.config.pincode,
-          depot: depotName,
-          thumbnailUrl: imgUrl,
-        });
-      } catch (err) {
-        console.warn("Card render error:", err);
-      }
 
       notify(
         `🚨 **RESTOCK ALERT:** **${live.name}** is now IN STOCK (${stockUnits} available) at **${s.config.pincode}**! 👉 ${shopUrl}`,
@@ -385,10 +367,8 @@ async function poll() {
           title: live.name,
           description: descLines.join("\n"),
           url: shopUrl,
-          color: 0x16a34a,
-          thumbnailUrl: imgUrl,
+          color: 0xffffff,
           footerText: `Latch Amul Radar • ${s.config.pincode}`,
-          cardImageBuffer: cardBuffer,
         },
       );
     }

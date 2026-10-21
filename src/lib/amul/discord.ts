@@ -120,56 +120,32 @@ export async function sendDiscordWebhook(
 
 /**
  * Sends a test notification to verify that the webhook is valid and working.
- * Renders and dispatches the high-fidelity product card image matching user specifications.
+ * Showcases the clean mobile-friendly Discord embed layout.
  */
 export async function pingDiscord(webhookUrl: string): Promise<SendDiscordWebhookResult> {
   const sampleShopUrl = "https://shop.amul.com/en/product/amul-chocolate-whey-protein-cartong-1020kg";
 
-  try {
-    const cardBuffer = await renderProductCardPng({
-      category: "AMUL • WHEY PROTEIN",
-      name: "Amul Chocolate Whey Protein (30 Sachets)",
-      priceINR: 2500,
-      stockUnits: 549,
-      unitLabel: "boxes",
-      yieldText: "750g total · 25g/sachet",
-      costPerGram: 2.45,
-      pincode: "380009",
-      depot: "Gujarat HQ",
-    });
-
-    return sendDiscordWebhook({
-      webhookUrl,
-      username: "⚡ Latch Amul Radar",
-      content: `### [⚡ Buy Amul Chocolate Whey Protein on Amul Store ↗](${sampleShopUrl})`,
-      file: {
-        buffer: cardBuffer,
-        filename: "amul-product-card.png",
+  return sendDiscordWebhook({
+    webhookUrl,
+    username: "⚡ Latch Amul Radar",
+    embeds: [
+      {
+        author: { name: "AMUL • WHEY PROTEIN" },
+        title: "Amul Chocolate Whey Protein (30 Sachets)",
+        url: sampleShopUrl,
+        color: 0xffffff,
+        description: [
+          "🏷️ **Price:** ₹2,500",
+          "📦 **Live Stock:** 🟢 **549 boxes** available",
+          "💪 **Protein Yield:** 750g · 25g/sachet",
+          "⚡ **Value Tier:** ₹2.45/g 🔥 *Best Value*",
+          "📍 **Regional Hub:** 380009 · Gujarat HQ",
+          "",
+          `👉 [**⚡ Buy on Amul Store ↗**](${sampleShopUrl})`,
+        ].join("\n"),
+        footer: { text: "Latch Amul Radar • 380009" },
+        timestamp: new Date().toISOString(),
       },
-    });
-  } catch {
-    return sendDiscordWebhook({
-      webhookUrl,
-      username: "⚡ Latch Amul Radar",
-      embeds: [
-        {
-          author: { name: "AMUL • WHEY PROTEIN" },
-          title: "Amul Chocolate Whey Protein (30 Sachets)",
-          url: sampleShopUrl,
-          color: 0x16a34a,
-          description: [
-            "💰 **Price:** **₹2,500**",
-            "📦 **Stock:** 🟢 **549 boxes** available",
-            "💪 **Yield:** 750g total · 25g/sachet",
-            "⚡ **Value:** ₹2.45/g 🔥 **Best Value**",
-            "📍 **Hub:** 380009 · Gujarat HQ",
-            "",
-            `👉 [**⚡ Buy on Amul Store ↗**](${sampleShopUrl})`,
-          ].join("\n"),
-          footer: { text: "Latch Amul Radar • 380009" },
-          timestamp: new Date().toISOString(),
-        },
-      ],
-    });
-  }
+    ],
+  });
 }
