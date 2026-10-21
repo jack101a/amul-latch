@@ -136,7 +136,8 @@ export async function sendDiscordWebhook(
  * Showcases the clean mobile-friendly Discord embed layout.
  */
 export async function pingDiscord(webhookUrl: string): Promise<SendDiscordWebhookResult> {
-  const sampleShopUrl = "https://shop.amul.com/en/product/amul-chocolate-whey-protein-carton-1020g";
+  const sampleShopUrl =
+    "https://shop.amul.com/en/product/amul-chocolate-whey-protein-34-g-or-pack-of-30-sachets";
   const sampleImgUrl =
     "https://shop.amul.com/s/62fa94df8c13af2e242eba16/6a4e2160fdab14de18031795/01-hero-image_amul-whey-protein-carton-chocolateg-1020kg.png";
 
@@ -146,13 +147,13 @@ export async function pingDiscord(webhookUrl: string): Promise<SendDiscordWebhoo
     embeds: [
       {
         author: {
-          name: "Amul Chocolate Whey Protein (30 Sachets)",
+          name: "Amul Chocolate Whey Protein, 34 g | Pack of 30 sachets",
           icon_url: sampleImgUrl,
           url: sampleShopUrl,
         },
         color: 0xffffff,
         description: [
-          "## ₹2,500  •  🟢 549 qty",
+          "## ₹2,500  •  🟢 145 qty",
           "",
           "-# PROTEIN & VALUE",
           "💪 **750g** total (25g/sachet)  •  ⚡ **₹2.45/g**",
