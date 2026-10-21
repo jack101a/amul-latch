@@ -330,29 +330,57 @@ async function poll() {
       pushEvent("restock", "ok", "Restock detected", live.name, live.sku);
       const shopUrl = `https://shop.amul.com/en/product/${live.alias}`;
       const imgUrl = productImageUrl(live.imageUrl);
-      notify(`🚨 RESTOCK: ${live.name}\n\nNow in stock for ${s.config.pincode}!\nPrice: ₹${live.price}\nShop: ${shopUrl}`, {
-        title: `🚨 RESTOCK: ${live.name}`,
-        url: shopUrl,
-        color: 0x2ecc71,
-        thumbnailUrl: imgUrl,
-        fields: [
-          { name: "Price", value: `₹${live.price}`, inline: true },
-          {
-            name: "Available Stock",
-            value: `${live.inventoryQuantity || live.available || 1} boxes`,
-            inline: true,
-          },
-          ...(live.costPerGramProtein
-            ? [{ name: "Protein Value", value: `₹${live.costPerGramProtein}/g protein`, inline: true }]
-            : []),
-          {
-            name: "Destination",
-            value: `${s.config.pincode} (${s.substore?.name || "Amul Depot"})`,
-            inline: true,
-          },
-          { name: "Store Link", value: `[Open on Amul Store](${shopUrl})`, inline: false },
-        ],
+      const stockUnits = live.inventoryQuantity || live.available || 1;
+      const isWhey = /whey/i.test(live.name);
+      const isShake = /shake|buttermilk|lassi|milk/i.test(live.name);
+      const color = isWhey ? 0x00e676 : isShake ? 0x00b0ff : 0xffd600;
+
+      const embedFields: { name: string; value: string; inline?: boolean }[] = [
+        { name: "🏷️ Price", value: `**₹${live.price.toLocaleString("en-IN")}**`, inline: true },
+        { name: "📦 Live Stock", value: `**🟢 ${stockUnits} boxes** available`, inline: true },
+        {
+          name: "📍 Regional Hub",
+          value: `**${s.config.pincode}** (${s.substore?.name || "Amul Depot"})`,
+          inline: true,
+        },
+      ];
+
+      if (live.proteinGrams) {
+        embedFields.push({
+          name: "💪 Protein Content",
+          value: `**${live.proteinGrams}g** total protein`,
+          inline: true,
+        });
+      }
+
+      if (live.costPerGramProtein) {
+        const isBestValue = live.costPerGramProtein <= 2.5;
+        embedFields.push({
+          name: "⚡ Protein Economics",
+          value: `**₹${live.costPerGramProtein}/g** ${isBestValue ? "*(🔥 Best Value)*" : ""}`,
+          inline: true,
+        });
+      }
+
+      embedFields.push({
+        name: "🚀 Quick Purchase Action",
+        value: `👉 **[TAP HERE TO BUY ON SHOP.AMUL.COM](${shopUrl})**\n*(Instant redirect to product page in browser/app)*`,
+        inline: false,
       });
+
+      notify(
+        `🚨 **RESTOCK ALERT:** **${live.name}** is now IN STOCK (${stockUnits} available) at **${s.config.pincode}**! 👉 ${shopUrl}`,
+        {
+          title: `🚨 RESTOCK: ${live.name}`,
+          description: `**${live.name}** has just flipped **IN STOCK** for delivery hub **${s.config.pincode}**!\n⚡ *Demand is high and stock clears rapidly. Tap the link below to purchase.*`,
+          url: shopUrl,
+          color,
+          thumbnailUrl: imgUrl,
+          imageUrl: imgUrl,
+          fields: embedFields,
+          footerText: `📡 Latch Amul Restock Radar • SKU: ${live.sku}`,
+        },
+      );
     }
     return;
   }
@@ -477,10 +505,13 @@ function pushEvent(
 
 export interface NotificationMeta {
   title?: string;
+  description?: string;
   url?: string;
   color?: number;
   fields?: { name: string; value: string; inline?: boolean }[];
   thumbnailUrl?: string | null;
+  imageUrl?: string | null;
+  footerText?: string;
 }
 
 function notify(text: string, meta?: NotificationMeta) {
@@ -499,16 +530,18 @@ function notify(text: string, meta?: NotificationMeta) {
   if (s.config.discordEnabled && s.config.discordWebhookUrl) {
     const embed: DiscordEmbed = {
       title: meta?.title || "⚡ Latch Amul Alert",
-      description: meta?.fields && meta.fields.length > 0 ? undefined : text,
+      description: meta?.description || (meta?.fields && meta.fields.length > 0 ? undefined : text),
       url: meta?.url,
       color: meta?.color ?? 0x6f8f6a,
       fields: meta?.fields,
       thumbnail: meta?.thumbnailUrl ? { url: meta.thumbnailUrl } : undefined,
-      footer: { text: "Latch Amul Radar" },
+      image: meta?.imageUrl ? { url: meta.imageUrl } : undefined,
+      footer: { text: meta?.footerText || "📡 Latch Amul Radar · Non-Custodial Zero-Auth" },
       timestamp: new Date().toISOString(),
     };
     void sendDiscordWebhook({
       webhookUrl: s.config.discordWebhookUrl,
+      username: "⚡ Latch Amul Radar",
       embeds: [embed],
     }).then((res) => {
       if (!res.ok) pushEvent("discord", "error", "Discord webhook failed", res.error);

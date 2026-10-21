@@ -18,6 +18,8 @@ export interface DiscordEmbed {
 
 export interface SendDiscordWebhookInput {
   webhookUrl: string;
+  username?: string;
+  avatar_url?: string;
   content?: string;
   embeds?: DiscordEmbed[];
 }
@@ -57,7 +59,10 @@ export async function sendDiscordWebhook(
     };
   }
 
-  const payload: Record<string, unknown> = {};
+  const payload: Record<string, unknown> = {
+    username: input.username || "⚡ Latch Amul Radar",
+  };
+  if (input.avatar_url) payload.avatar_url = input.avatar_url;
   if (input.content) payload.content = input.content;
   if (input.embeds && input.embeds.length > 0) {
     payload.embeds = input.embeds;
@@ -97,19 +102,30 @@ export async function sendDiscordWebhook(
 export async function pingDiscord(webhookUrl: string): Promise<SendDiscordWebhookResult> {
   return sendDiscordWebhook({
     webhookUrl,
+    username: "⚡ Latch Amul Radar",
     embeds: [
       {
-        title: "⚡ Latch Amul Radar · Discord Alerts Active",
+        title: "📡 LATCH AMUL RADAR · TELEMETRY ONLINE",
         description:
-          "Your Discord webhook is connected! Latch will send instant rich notifications here when watched Amul protein products restock or require checkout payment authorization.",
+          "🎯 **Discord Webhook Channel Connected Successfully!**\n\nLatch is actively scanning Amul regional substores and fulfillment hubs. When any watched protein product restocks in your delivery area, an instant rich alert with live stock quantities, protein economics, product photos, and 1-tap checkout links will be dispatched here.",
         url: "https://shop.amul.com",
-        color: 0x6f8f6a, // Latch Sage Green
+        color: 0x00e676, // Cyber Emerald Green
         fields: [
-          { name: "Radar Status", value: "Operational 🟢", inline: true },
-          { name: "Substore Polling", value: "Adaptive 📡", inline: true },
-          { name: "Security", value: "Non-Custodial 🛡️", inline: true },
+          { name: "📡 Radar Status", value: "Operational 🟢", inline: true },
+          { name: "⚡ Polling Engine", value: "Adaptive REST ⚡", inline: true },
+          { name: "🛡️ Architecture", value: "Zero-Auth & Safe 🛡️", inline: true },
+          {
+            name: "📦 Monitored Categories",
+            value: "Whey Protein (Raw & Chocolate), High Protein Shakes, Buttermilk, Paneer",
+            inline: false,
+          },
+          {
+            name: "🚀 Quick Link",
+            value: "👉 [Browse Live Store on shop.amul.com](https://shop.amul.com)",
+            inline: false,
+          },
         ],
-        footer: { text: "Latch Amul Protein Restock Watcher" },
+        footer: { text: "Latch Amul Protein Restock Radar • Ready to alert" },
         timestamp: new Date().toISOString(),
       },
     ],
