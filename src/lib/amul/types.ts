@@ -145,6 +145,7 @@ export type WatchSnapshot = {
   phase: WatchPhase;
   watching: boolean;
   pincode: string;
+  config?: AppConfig;
   substore: SubstoreInfo | null;
   sessionReady: boolean;
   userProfile?: UserProfileInfo | null;

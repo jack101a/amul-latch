@@ -3,6 +3,7 @@ import { z } from "zod";
 import {
   applyConfig,
   fetchCatalog,
+  getConfig,
   getSnapshot,
   pingDiscordAlert,
   pingWhatsApp,
@@ -37,6 +38,10 @@ const configSchema = z.object({
 
 export const getWatchStatus = createServerFn({ method: "POST" }).handler(async () => {
   return getSnapshot();
+});
+
+export const getServerConfig = createServerFn({ method: "POST" }).handler(async () => {
+  return getConfig();
 });
 
 export const syncServerConfig = createServerFn({ method: "POST" })

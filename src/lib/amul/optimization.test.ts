@@ -9,7 +9,7 @@ import {
   type TrackedProduct,
   type AmulProduct,
 } from "./types.ts";
-import { getISTDecimalHour, calculateAdaptiveInterval } from "./runtime.ts";
+import { getISTDecimalHour, calculateAdaptiveInterval, getConfig, applyConfig } from "./runtime.ts";
 
 test("Protein Economics: extraction of pack multiplier", () => {
   assert.equal(extractPackMultiplier("Amul High Protein Buttermilk, 200 ml | Pack of 30"), 30);
@@ -145,4 +145,11 @@ test("Circadian Adaptive Polling: interval scaling across restock and dormancy w
     nightDate
   );
   assert.equal(inStockInterval, 6000);
+});
+
+test("Config Ingestion: getConfig returns application configuration", () => {
+  applyConfig({ discordWebhookUrl: "https://discord.com/api/webhooks/test/123", discordEnabled: true });
+  const cfg = getConfig();
+  assert.equal(cfg.discordWebhookUrl, "https://discord.com/api/webhooks/test/123");
+  assert.equal(cfg.discordEnabled, true);
 });

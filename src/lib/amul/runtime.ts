@@ -41,16 +41,67 @@ type RuntimeState = {
 
 const g = globalThis as typeof globalThis & { __latchRuntime?: RuntimeState };
 
-function loadPersistedConfig(): Partial<AppConfig> {
+function loadEnvConfig(): Partial<AppConfig> {
+  if (typeof process === "undefined" || !process.env) return {};
+  const env = process.env;
+  const cfg: Partial<AppConfig> = {};
+  if (env.PINCODE && env.PINCODE.trim()) {
+    cfg.pincode = env.PINCODE.trim();
+  }
+  if (env.DISCORD_WEBHOOK_URL && env.DISCORD_WEBHOOK_URL.trim()) {
+    cfg.discordWebhookUrl = env.DISCORD_WEBHOOK_URL.trim();
+    cfg.discordEnabled =
+      env.DISCORD_ENABLED === "true" ||
+      env.DISCORD_ENABLED === "1" ||
+      Boolean(cfg.discordWebhookUrl);
+  } else if (env.DISCORD_ENABLED !== undefined) {
+    cfg.discordEnabled = env.DISCORD_ENABLED === "true" || env.DISCORD_ENABLED === "1";
+  }
+  if (env.WHATSAPP_PHONE && env.WHATSAPP_PHONE.trim()) {
+    cfg.whatsappPhone = env.WHATSAPP_PHONE.trim();
+  }
+  if (env.WHATSAPP_APIKEY && env.WHATSAPP_APIKEY.trim()) {
+    cfg.whatsappApiKey = env.WHATSAPP_APIKEY.trim();
+  }
+  if (env.WHATSAPP_ENABLED !== undefined) {
+    cfg.whatsappEnabled = env.WHATSAPP_ENABLED === "true" || env.WHATSAPP_ENABLED === "1";
+  }
+  return cfg;
+}
+
+function resolveConfigFile(): string | null {
   try {
     if (typeof process !== "undefined" && process.cwd) {
       const fs = require("node:fs");
       const path = require("node:path");
-      const file = path.resolve(process.cwd(), "latch-config.json");
+      const candidates = [
+        path.resolve(process.cwd(), "data", "latch-config.json"),
+        path.resolve(process.cwd(), "latch-config.json"),
+      ];
+      for (const c of candidates) {
+        if (fs.existsSync(c)) return c;
+      }
+      // If data directory exists (e.g. mounted volume in docker), prefer it
+      const dataDir = path.resolve(process.cwd(), "data");
+      if (fs.existsSync(dataDir)) {
+        return path.join(dataDir, "latch-config.json");
+      }
+      return path.resolve(process.cwd(), "latch-config.json");
+    }
+  } catch {
+    /* ignore */
+  }
+  return null;
+}
+
+function loadPersistedConfig(): Partial<AppConfig> {
+  try {
+    const file = resolveConfigFile();
+    if (file) {
+      const fs = require("node:fs");
       if (fs.existsSync(file)) {
         const parsed = JSON.parse(fs.readFileSync(file, "utf-8")) as Partial<AppConfig> &
           Record<string, unknown>;
-        // Drop legacy checkout/session fields from older Latch configs.
         const {
           autoOrder: _autoOrder,
           orderIfAlreadyInStock: _orderIfAlreadyInStock,
@@ -68,10 +119,9 @@ function loadPersistedConfig(): Partial<AppConfig> {
 
 function savePersistedConfig(config: AppConfig) {
   try {
-    if (typeof process !== "undefined" && process.cwd) {
+    const file = resolveConfigFile();
+    if (file) {
       const fs = require("node:fs");
-      const path = require("node:path");
-      const file = path.resolve(process.cwd(), "latch-config.json");
       fs.writeFileSync(file, JSON.stringify(config, null, 2), "utf-8");
     }
   } catch {
@@ -80,11 +130,22 @@ function savePersistedConfig(config: AppConfig) {
 }
 
 function emptyState(): RuntimeState {
+  const envConfig = loadEnvConfig();
   const persisted = loadPersistedConfig();
   const initialConfig: AppConfig = {
     ...DEFAULT_CONFIG,
     ...persisted,
+    ...envConfig,
   };
+
+  // Environment variables take precedence if present
+  if (envConfig.discordWebhookUrl) {
+    initialConfig.discordWebhookUrl = envConfig.discordWebhookUrl;
+    initialConfig.discordEnabled = envConfig.discordEnabled ?? true;
+  }
+  if (envConfig.pincode) {
+    initialConfig.pincode = envConfig.pincode;
+  }
 
   return {
     watching: false,
@@ -111,12 +172,17 @@ function state(): RuntimeState {
   return g.__latchRuntime;
 }
 
+export function getConfig(): AppConfig {
+  return { ...state().config };
+}
+
 export function getSnapshot(): WatchSnapshot {
   const s = state();
   return {
     phase: derivePhase(s),
     watching: s.watching,
     pincode: s.config.pincode,
+    config: s.config,
     substore: s.substore,
     sessionReady: s.sessionReady,
     lastTickAt: s.lastTickAt ? new Date(s.lastTickAt).toISOString() : null,

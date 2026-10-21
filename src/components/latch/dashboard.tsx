@@ -21,6 +21,7 @@ import {
 import { toast } from "sonner";
 import {
   getWatchStatus,
+  getServerConfig,
   resolvePincode,
   startWatcher,
   stopWatcher,
@@ -89,32 +90,69 @@ export function LatchDashboard() {
   const searchInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      if (raw) {
-        const parsed = JSON.parse(raw) as Partial<AppConfig>;
-        const next: AppConfig = {
-          ...DEFAULT_CONFIG,
-          pincode: parsed.pincode ?? DEFAULT_CONFIG.pincode,
-          products: parsed.products ?? DEFAULT_CONFIG.products,
-          soundEnabled: parsed.soundEnabled ?? DEFAULT_CONFIG.soundEnabled,
-          whatsappEnabled: parsed.whatsappEnabled ?? DEFAULT_CONFIG.whatsappEnabled,
-          whatsappPhone: parsed.whatsappPhone ?? DEFAULT_CONFIG.whatsappPhone,
-          whatsappApiKey: parsed.whatsappApiKey ?? DEFAULT_CONFIG.whatsappApiKey,
-          discordEnabled: parsed.discordEnabled ?? DEFAULT_CONFIG.discordEnabled,
-          discordWebhookUrl: parsed.discordWebhookUrl ?? DEFAULT_CONFIG.discordWebhookUrl,
-          pollMinMs: parsed.pollMinMs ?? DEFAULT_CONFIG.pollMinMs,
-          pollMaxMs: parsed.pollMaxMs ?? DEFAULT_CONFIG.pollMaxMs,
-          orderCooldownMs: parsed.orderCooldownMs ?? DEFAULT_CONFIG.orderCooldownMs,
-        };
+    let cancelled = false;
+
+    async function initConfig() {
+      let serverCfg: AppConfig | null = null;
+      try {
+        serverCfg = await getServerConfig();
+      } catch {
+        /* ignore */
+      }
+
+      let parsed: Partial<AppConfig> = {};
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (raw) parsed = JSON.parse(raw) as Partial<AppConfig>;
+      } catch {
+        /* ignore */
+      }
+
+      const serverDiscord = serverCfg?.discordWebhookUrl?.trim() || "";
+      const localDiscord = parsed.discordWebhookUrl?.trim() || "";
+      const effectiveDiscord = localDiscord || serverDiscord;
+
+      const serverPhone = serverCfg?.whatsappPhone?.trim() || "";
+      const localPhone = parsed.whatsappPhone?.trim() || "";
+      const effectivePhone = localPhone || serverPhone;
+
+      const serverKey = serverCfg?.whatsappApiKey?.trim() || "";
+      const localKey = parsed.whatsappApiKey?.trim() || "";
+      const effectiveKey = localKey || serverKey;
+
+      const next: AppConfig = {
+        ...DEFAULT_CONFIG,
+        ...(serverCfg || {}),
+        pincode: parsed.pincode || serverCfg?.pincode || DEFAULT_CONFIG.pincode,
+        products: parsed.products ?? serverCfg?.products ?? DEFAULT_CONFIG.products,
+        soundEnabled: parsed.soundEnabled ?? serverCfg?.soundEnabled ?? DEFAULT_CONFIG.soundEnabled,
+        whatsappEnabled:
+          parsed.whatsappEnabled ??
+          (serverCfg?.whatsappEnabled ?? Boolean(effectivePhone && effectiveKey)),
+        whatsappPhone: effectivePhone,
+        whatsappApiKey: effectiveKey,
+        discordEnabled:
+          parsed.discordEnabled ??
+          (serverCfg?.discordEnabled ?? Boolean(effectiveDiscord)),
+        discordWebhookUrl: effectiveDiscord,
+        pollMinMs: parsed.pollMinMs ?? serverCfg?.pollMinMs ?? DEFAULT_CONFIG.pollMinMs,
+        pollMaxMs: parsed.pollMaxMs ?? serverCfg?.pollMaxMs ?? DEFAULT_CONFIG.pollMaxMs,
+        orderCooldownMs:
+          parsed.orderCooldownMs ?? serverCfg?.orderCooldownMs ?? DEFAULT_CONFIG.orderCooldownMs,
+      };
+
+      if (!cancelled) {
         setConfig(next);
         setPinInput(next.pincode);
+        setHydrated(true);
         void syncServerConfig({ data: { config: next } }).catch(() => undefined);
       }
-    } catch {
-      /* ignore */
     }
-    setHydrated(true);
+
+    void initConfig();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
@@ -130,13 +168,20 @@ export function LatchDashboard() {
         if (!cancelled) {
           setSnap(s);
           if (s.products.length) setCatalog(s.products);
+          if (s.config?.discordWebhookUrl && !config.discordWebhookUrl) {
+            setConfig((prev) => ({
+              ...prev,
+              discordWebhookUrl: s.config?.discordWebhookUrl ?? prev.discordWebhookUrl,
+              discordEnabled: s.config?.discordEnabled ?? prev.discordEnabled,
+            }));
+          }
         }
       })
       .catch(() => undefined);
     return () => {
       cancelled = true;
     };
-  }, [hydrated]);
+  }, [hydrated, config.discordWebhookUrl]);
 
   useEffect(() => {
     if (!hydrated) return;
