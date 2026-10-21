@@ -342,7 +342,7 @@ async function poll() {
       const headerCategory = productCategoryHeader(live.name);
 
       const descLines: string[] = [
-        `**${live.name}**`,
+        `# 🟢 ₹${live.price.toLocaleString("en-IN")}`,
         `\` 🟢 ${stockUnits} ${unitLabel} in stock \``,
         "",
         "────────────────────────",
@@ -350,28 +350,30 @@ async function poll() {
       ];
 
       if (yieldStr) {
-        descLines.push("-# 🏋️ PROTEIN YIELD");
-        descLines.push(`**${yieldStr}**`);
+        descLines.push("🏋️ **PROTEIN YIELD**");
+        descLines.push(`### ${yieldStr}`);
         descLines.push("");
       }
 
       if (live.costPerGramProtein) {
         const isBestValue = live.costPerGramProtein <= 2.5;
-        descLines.push("-# ⚡ VALUE TIER");
-        descLines.push(`**₹${live.costPerGramProtein}/g**${isBestValue ? "  ` 🔥 BEST VALUE `" : ""}`);
+        descLines.push("⚡ **VALUE TIER**");
+        descLines.push(`### ₹${live.costPerGramProtein}/g${isBestValue ? "  ` 🔥 BEST VALUE `" : ""}`);
         descLines.push("");
       }
 
-      descLines.push("-# 📍 REGIONAL HUB");
-      descLines.push(`**${s.config.pincode} · ${depotName}**`);
+      descLines.push("📍 **REGIONAL HUB**");
+      descLines.push(`### ${s.config.pincode} · ${depotName}`);
       descLines.push("");
-      descLines.push(`### [⚡ Buy on Amul Store ↗](${shopUrl})`);
+      descLines.push("────────────────────────");
+      descLines.push("");
+      descLines.push(`## [⚡ Buy on Amul Store ↗](${shopUrl})`);
 
       notify(
         `🚨 **RESTOCK ALERT:** **${live.name}** is now IN STOCK (${stockUnits} available) at **${s.config.pincode}**! 👉 ${shopUrl}`,
         {
           authorName: headerCategory,
-          title: `₹${live.price.toLocaleString("en-IN")}`,
+          title: live.name,
           description: descLines.join("\n"),
           url: shopUrl,
           color: 0x16a34a,
