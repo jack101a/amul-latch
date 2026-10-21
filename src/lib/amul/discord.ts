@@ -124,26 +124,32 @@ export async function sendDiscordWebhook(
  */
 export async function pingDiscord(webhookUrl: string): Promise<SendDiscordWebhookResult> {
   const sampleShopUrl = "https://shop.amul.com/en/product/amul-chocolate-whey-protein-cartong-1020kg";
+  const sampleImgUrl =
+    "https://shop.amul.com/s/62fa94df8c13af2e242eba16/6a4e2160fdab14de18031795/01-hero-image_amul-whey-protein-carton-chocolateg-1020kg.png";
 
   return sendDiscordWebhook({
     webhookUrl,
     username: "⚡ Latch Amul Radar",
     embeds: [
       {
-        author: { name: "AMUL • WHEY PROTEIN" },
+        author: {
+          name: "AMUL • WHEY PROTEIN",
+          icon_url: sampleImgUrl,
+        },
         title: "Amul Chocolate Whey Protein (30 Sachets)",
         url: sampleShopUrl,
         color: 0xffffff,
         description: [
-          "🏷️ **Price:** ₹2,500",
-          "📦 **Live Stock:** 🟢 **549 boxes** available",
-          "💪 **Protein Yield:** 750g · 25g/sachet",
-          "⚡ **Value Tier:** ₹2.45/g 🔥 *Best Value*",
-          "📍 **Regional Hub:** 380009 · Gujarat HQ",
+          "🏷️ **Price:** **₹2,500**",
+          "📦 **Live Stock:** 🟢 **549 boxes available**",
           "",
-          `👉 [**⚡ Buy on Amul Store ↗**](${sampleShopUrl})`,
+          "💪 **Protein Yield:** 750g total · 25g/sachet",
+          "⚡ **Value:** ₹2.45/g",
+          "",
+          `👉 ### [⚡ Buy on Amul Store ↗](${sampleShopUrl})`,
         ].join("\n"),
-        footer: { text: "Latch Amul Radar • 380009" },
+        image: { url: sampleImgUrl },
+        footer: { text: "Latch Amul Radar • Non-Custodial Zero-Auth" },
         timestamp: new Date().toISOString(),
       },
     ],

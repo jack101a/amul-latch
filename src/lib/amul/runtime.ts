@@ -343,8 +343,9 @@ async function poll() {
       const headerCategory = productCategoryHeader(live.name);
 
       const descLines: string[] = [
-        `🏷️ **Price:** ₹${live.price.toLocaleString("en-IN")}`,
-        `📦 **Live Stock:** 🟢 **${stockUnits} ${unitLabel}** available`,
+        `🏷️ **Price:** **₹${live.price.toLocaleString("en-IN")}**`,
+        `📦 **Live Stock:** 🟢 **${stockUnits} ${unitLabel} available**`,
+        "",
       ];
 
       if (yieldStr) {
@@ -352,23 +353,23 @@ async function poll() {
       }
 
       if (live.costPerGramProtein) {
-        const isBestValue = live.costPerGramProtein <= 2.5;
-        descLines.push(`⚡ **Value Tier:** ₹${live.costPerGramProtein}/g${isBestValue ? " 🔥 *Best Value*" : ""}`);
+        descLines.push(`⚡ **Value:** ₹${live.costPerGramProtein}/g`);
       }
 
-      descLines.push(`📍 **Regional Hub:** ${s.config.pincode} · ${depotName}`);
       descLines.push("");
-      descLines.push(`👉 [**⚡ Buy on Amul Store ↗**](${shopUrl})`);
+      descLines.push(`👉 ### [⚡ Buy on Amul Store ↗](${shopUrl})`);
 
       notify(
         `🚨 **RESTOCK ALERT:** **${live.name}** is now IN STOCK (${stockUnits} available) at **${s.config.pincode}**! 👉 ${shopUrl}`,
         {
           authorName: headerCategory,
+          authorIconUrl: imgUrl,
           title: live.name,
           description: descLines.join("\n"),
           url: shopUrl,
           color: 0xffffff,
-          footerText: `Latch Amul Radar • ${s.config.pincode}`,
+          imageUrl: imgUrl,
+          footerText: "Latch Amul Radar • Non-Custodial Zero-Auth",
         },
       );
     }
@@ -504,6 +505,7 @@ function pushEvent(
 
 export interface NotificationMeta {
   authorName?: string;
+  authorIconUrl?: string | null;
   title?: string;
   description?: string;
   url?: string;
@@ -543,11 +545,16 @@ function notify(text: string, meta?: NotificationMeta) {
       });
     } else {
       const embed: DiscordEmbed = {
-        author: meta?.authorName ? { name: meta.authorName } : undefined,
+        author: meta?.authorName
+          ? {
+              name: meta.authorName,
+              icon_url: meta.authorIconUrl || undefined,
+            }
+          : undefined,
         title: meta?.title || "⚡ Latch Amul Alert",
         description: meta?.description || (meta?.fields && meta.fields.length > 0 ? undefined : text),
         url: meta?.url,
-        color: meta?.color ?? 0x00e676,
+        color: meta?.color ?? 0xffffff,
         fields: meta?.fields,
         thumbnail: meta?.thumbnailUrl ? { url: meta.thumbnailUrl } : undefined,
         image: meta?.imageUrl ? { url: meta.imageUrl } : undefined,
