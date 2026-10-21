@@ -2,20 +2,14 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import {
   applyConfig,
-  checkSessionCookie,
-  checkoutNow,
-  clearCheckout,
-  disconnectSession,
   fetchCatalog,
   getSnapshot,
   pingDiscordAlert,
   pingWhatsApp,
-  setVerifiedProfile,
   startWatch,
   stopWatch,
   tickOnce,
 } from "./runtime";
-import { requestAmulOtp, verifyAmulOtp } from "./otp-service";
 import { DEFAULT_CONFIG, type AppConfig } from "./types";
 
 const trackedSchema = z.object({
@@ -30,15 +24,12 @@ const trackedSchema = z.object({
 const configSchema = z.object({
   pincode: z.string(),
   products: z.array(trackedSchema),
-  autoOrder: z.boolean(),
-  orderIfAlreadyInStock: z.boolean(),
   soundEnabled: z.boolean().optional(),
   whatsappEnabled: z.boolean().optional(),
   whatsappPhone: z.string().optional(),
   whatsappApiKey: z.string().optional(),
   discordEnabled: z.boolean().optional(),
   discordWebhookUrl: z.string().optional(),
-  sessionCookie: z.string(),
   pollMinMs: z.number().int().min(500),
   pollMaxMs: z.number().int().min(500),
   orderCooldownMs: z.number().int().min(0),
@@ -56,9 +47,8 @@ export const syncServerConfig = createServerFn({ method: "POST" })
   });
 
 export const resolvePincode = createServerFn({ method: "POST" })
-  .validator(z.object({ pincode: z.string(), sessionCookie: z.string().optional() }))
+  .validator(z.object({ pincode: z.string() }))
   .handler(async ({ data }) => {
-    if (data.sessionCookie) applyConfig({ sessionCookie: data.sessionCookie });
     return fetchCatalog(data.pincode.trim());
   });
 
@@ -85,19 +75,6 @@ export const tickWatcher = createServerFn({ method: "POST" })
     return tickOnce(data.config);
   });
 
-export const startCheckout = createServerFn({ method: "POST" })
-  .validator(z.object({ sku: z.string(), config: configSchema.optional() }))
-  .handler(async ({ data }) => {
-    if (data.config) applyConfig(data.config);
-    return checkoutNow(data.sku);
-  });
-
-export const dismissCheckout = createServerFn({ method: "POST" }).handler(async () => {
-  return clearCheckout();
-});
-
-
-
 export const testWhatsApp = createServerFn({ method: "POST" })
   .validator(z.object({ phone: z.string(), apiKey: z.string() }))
   .handler(async ({ data }) => {
@@ -109,33 +86,3 @@ export const testDiscord = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     return pingDiscordAlert(data.webhookUrl);
   });
-
-export const verifySessionCookie = createServerFn({ method: "POST" })
-  .validator(z.object({ sessionCookie: z.string() }))
-  .handler(async ({ data }) => {
-    return checkSessionCookie(data.sessionCookie);
-  });
-
-export const requestLoginOtp = createServerFn({ method: "POST" })
-  .validator(z.object({ phone: z.string() }))
-  .handler(async ({ data }) => {
-    return requestAmulOtp(data.phone);
-  });
-
-export const submitLoginOtp = createServerFn({ method: "POST" })
-  .validator(z.object({ token: z.string(), otp: z.string() }))
-  .handler(async ({ data }) => {
-    const res = await verifyAmulOtp(data.token, data.otp);
-    if (res.ok && res.sessionCookie) {
-      applyConfig({ sessionCookie: res.sessionCookie });
-      if (res.profile) {
-        setVerifiedProfile(res.sessionCookie, res.profile);
-      }
-    }
-    return res;
-  });
-
-export const disconnectSessionAction = createServerFn({ method: "POST" }).handler(async () => {
-  return disconnectSession();
-});
-

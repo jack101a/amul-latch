@@ -5,7 +5,7 @@ export const CALLMEBOT_ORIGIN = "https://api.callmebot.com";
 export const EXTERNAL_DOMAINS = [
   {
     host: "shop.amul.com",
-    why: "Official Amul shop — session, pincode, stock, cart, and checkout",
+    why: "Official Amul shop — pincode routing and live stock",
   },
   {
     host: "api.callmebot.com",
@@ -55,15 +55,12 @@ export type TrackedProduct = {
 export type AppConfig = {
   pincode: string;
   products: TrackedProduct[];
-  autoOrder: boolean;
-  orderIfAlreadyInStock: boolean;
   soundEnabled: boolean;
   whatsappEnabled: boolean;
   whatsappPhone: string;
   whatsappApiKey: string;
   discordEnabled: boolean;
   discordWebhookUrl: string;
-  sessionCookie: string;
   pollMinMs: number;
   pollMaxMs: number;
   orderCooldownMs: number;
@@ -150,17 +147,13 @@ export type WatchSnapshot = {
   pincode: string;
   substore: SubstoreInfo | null;
   sessionReady: boolean;
-  sessionImported: boolean;
-  sessionLoggedIn: boolean;
   userProfile?: UserProfileInfo | null;
   lastTickAt: string | null;
   nextPollMs: number;
   pollCount: number;
   products: AmulProduct[];
   tracked: TrackedProduct[];
-  autoOrder: boolean;
   events: ActivityEvent[];
-  checkout: CheckoutAttempt | null;
   lastError: string | null;
   amulReachable: boolean;
 };
@@ -168,15 +161,12 @@ export type WatchSnapshot = {
 export const DEFAULT_CONFIG: AppConfig = {
   pincode: "",
   products: [],
-  autoOrder: false,
-  orderIfAlreadyInStock: false,
   soundEnabled: true,
   whatsappEnabled: false,
   whatsappPhone: "",
   whatsappApiKey: "",
   discordEnabled: false,
   discordWebhookUrl: "",
-  sessionCookie: "",
   pollMinMs: 6000,
   pollMaxMs: 40000,
   orderCooldownMs: 45 * 60 * 1000,

@@ -1,11 +1,11 @@
 # ==============================================================================
-# Latch Dockerfile — Multi-Stage Build with Playwright Support
+# Latch Dockerfile — Multi-Stage Build
 # ==============================================================================
 
 FROM node:22-slim AS base
 WORKDIR /app
 
-# Install minimal OS dependencies for network & headless browser execution
+# Install minimal OS dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     wget \
     gnupg \
@@ -17,9 +17,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 FROM base AS dependencies
 COPY package*.json ./
 RUN npm ci
-
-# Install Playwright chromium and system libraries
-RUN npx playwright install --with-deps chromium
 
 # Stage 2: Build Application
 FROM dependencies AS build
@@ -34,9 +31,8 @@ ENV NODE_ENV=production \
     PORT=8082 \
     HOST=0.0.0.0
 
-# Copy cached dependencies & installed Playwright browser
+# Copy cached dependencies
 COPY --from=dependencies /app/node_modules ./node_modules
-COPY --from=dependencies /root/.cache/ms-playwright /root/.cache/ms-playwright
 COPY --from=build /app ./
 
 EXPOSE 8082

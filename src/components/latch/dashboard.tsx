@@ -2,9 +2,6 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { formatDistanceToNow } from "date-fns";
 import {
   ArrowUpDown,
-  Bell,
-  Check,
-  CheckCircle2,
   ChevronDown,
   ExternalLink,
   Filter,
@@ -23,25 +20,19 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import {
-  dismissCheckout,
-  disconnectSessionAction,
   getWatchStatus,
   resolvePincode,
-  startCheckout,
   startWatcher,
   stopWatcher,
   testDiscord,
   testWhatsApp,
   tickWatcher,
-  verifySessionCookie,
   syncServerConfig,
 } from "@/lib/amul/actions";
 import {
   DEFAULT_CONFIG,
   type AmulProduct,
   type AppConfig,
-  type SavedAddress,
-  type UserProfileInfo,
   type WatchSnapshot,
   extractProteinGrams,
   productPageUrl,
@@ -63,39 +54,14 @@ const STANDARD_HUBS = [
   { city: "Mumbai", pin: "400001" },
 ] as const;
 
-function extractAddressPincode(addr?: SavedAddress | null): string | null {
-  if (!addr) return null;
-  if (addr.zip) {
-    const m = addr.zip.match(/\b(\d{6})\b/);
-    if (m) return m[1];
-  }
-  if (addr.label) {
-    const m = addr.label.match(/\b(\d{6})\b/);
-    if (m) return m[1];
-  }
-  if (addr.raw) {
-    const rawPin =
-      (addr.raw as Record<string, unknown>).pincode ??
-      (addr.raw as Record<string, unknown>).zip ??
-      (addr.raw as Record<string, unknown>).zipcode ??
-      (addr.raw as Record<string, unknown>).postalCode;
-    if (typeof rawPin === "string" || typeof rawPin === "number") {
-      const m = String(rawPin).match(/\b(\d{6})\b/);
-      if (m) return m[1];
-    }
-    try {
-      const m = JSON.stringify(addr.raw).match(/\b(\d{6})\b/);
-      if (m) return m[1];
-    } catch {
-      /* ignore */
-    }
-  }
-  return null;
+function formatPollingInterval(ms: number): string {
+  if (ms >= 3600000) return `${(ms / 3600000).toFixed(1)}h`;
+  if (ms >= 60000) return `${Math.round(ms / 60000)}m`;
+  return `${Math.max(1, Math.round(ms / 1000))}s`;
 }
 
 const STORAGE_KEY = "latch-config-v1";
 const WATCH_KEY = "latch-watching-v1";
-const PROFILE_KEY = "latch-profile-v1";
 
 type SortMode = "default" | "value" | "price-asc" | "price-desc" | "name";
 
@@ -109,7 +75,7 @@ export function LatchDashboard() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [activityDrawerOpen, setActivityDrawerOpen] = useState(false);
   const [inlineActivityOpen, setInlineActivityOpen] = useState(false);
-  const [busy, setBusy] = useState<"pin" | "watch" | "checkout" | "whatsapp" | "discord" | null>(null);
+  const [busy, setBusy] = useState<"pin" | "watch" | "whatsapp" | "discord" | null>(null);
   const [filter, setFilter] = useState<"all" | "watched" | "value" | "instock" | "out">("all");
   const [sort, setSort] = useState<SortMode>("default");
   const [mobileTab, setMobileTab] = useState<"catalog" | "watched" | "activity">("catalog");
@@ -127,85 +93,27 @@ export function LatchDashboard() {
       const raw = localStorage.getItem(STORAGE_KEY);
       if (raw) {
         const parsed = JSON.parse(raw) as Partial<AppConfig>;
-        const next = { ...DEFAULT_CONFIG, ...parsed };
+        const next: AppConfig = {
+          ...DEFAULT_CONFIG,
+          pincode: parsed.pincode ?? DEFAULT_CONFIG.pincode,
+          products: parsed.products ?? DEFAULT_CONFIG.products,
+          soundEnabled: parsed.soundEnabled ?? DEFAULT_CONFIG.soundEnabled,
+          whatsappEnabled: parsed.whatsappEnabled ?? DEFAULT_CONFIG.whatsappEnabled,
+          whatsappPhone: parsed.whatsappPhone ?? DEFAULT_CONFIG.whatsappPhone,
+          whatsappApiKey: parsed.whatsappApiKey ?? DEFAULT_CONFIG.whatsappApiKey,
+          discordEnabled: parsed.discordEnabled ?? DEFAULT_CONFIG.discordEnabled,
+          discordWebhookUrl: parsed.discordWebhookUrl ?? DEFAULT_CONFIG.discordWebhookUrl,
+          pollMinMs: parsed.pollMinMs ?? DEFAULT_CONFIG.pollMinMs,
+          pollMaxMs: parsed.pollMaxMs ?? DEFAULT_CONFIG.pollMaxMs,
+          orderCooldownMs: parsed.orderCooldownMs ?? DEFAULT_CONFIG.orderCooldownMs,
+        };
         setConfig(next);
         setPinInput(next.pincode);
-
         void syncServerConfig({ data: { config: next } }).catch(() => undefined);
-
-        if (next.sessionCookie?.trim()) {
-          void verifySessionCookie({ data: { sessionCookie: next.sessionCookie } })
-            .then((res) => {
-              if (res.valid && res.loggedIn && res.profile) {
-                setSnap((prev) =>
-                  prev
-                    ? {
-                        ...prev,
-                        userProfile: res.profile,
-                        sessionLoggedIn: true,
-                        sessionReady: true,
-                      }
-                    : prev,
-                );
-                try {
-                  localStorage.setItem(PROFILE_KEY, JSON.stringify(res.profile));
-                } catch {
-                  /* ignore */
-                }
-              }
-            })
-            .catch(() => undefined);
-        }
       }
     } catch {
       /* ignore */
     }
-
-    try {
-      const rawProfile = localStorage.getItem(PROFILE_KEY);
-      if (rawProfile) {
-        const savedProfile = JSON.parse(rawProfile) as UserProfileInfo;
-        if (savedProfile?.userName) {
-          setSnap((prev) =>
-            prev
-              ? {
-                  ...prev,
-                  userProfile: savedProfile,
-                  sessionLoggedIn: true,
-                  sessionReady: true,
-                }
-              : null,
-          );
-        }
-      }
-    } catch {
-      /* ignore */
-    }
-
-    if (typeof window !== "undefined") {
-      const params = new URLSearchParams(window.location.search);
-      const importedCookie = params.get("import_cookie");
-      if (importedCookie) {
-        window.history.replaceState({}, document.title, window.location.pathname);
-        setConfig((prev) => ({ ...prev, sessionCookie: importedCookie }));
-        void verifySessionCookie({ data: { sessionCookie: importedCookie } })
-          .then((res) => {
-            if (res.valid && res.loggedIn && res.profile) {
-              setSnap((prev) => (prev ? { ...prev, userProfile: res.profile, sessionLoggedIn: true } : prev));
-              try {
-                localStorage.setItem(PROFILE_KEY, JSON.stringify(res.profile));
-              } catch {
-                /* ignore */
-              }
-              toast.success(`Connected to Amul: ${res.profile.userName}`);
-            } else {
-              toast.warning(res.message);
-            }
-          })
-          .catch(() => undefined);
-      }
-    }
-
     setHydrated(true);
   }, []);
 
@@ -220,29 +128,7 @@ export function LatchDashboard() {
     void getWatchStatus()
       .then((s) => {
         if (!cancelled) {
-          setSnap((prev) => {
-            const hasCookie = Boolean(config.sessionCookie?.trim());
-            let cachedProfile: UserProfileInfo | null = null;
-            try {
-              const p = localStorage.getItem(PROFILE_KEY);
-              if (p) cachedProfile = JSON.parse(p) as UserProfileInfo;
-            } catch {
-              /* ignore */
-            }
-            const mergedProfile = s.userProfile ?? (hasCookie ? (prev?.userProfile ?? cachedProfile) : null);
-            if (s.userProfile) {
-              try {
-                localStorage.setItem(PROFILE_KEY, JSON.stringify(s.userProfile));
-              } catch {
-                /* ignore */
-              }
-            }
-            return {
-              ...s,
-              userProfile: hasCookie ? mergedProfile : null,
-              sessionLoggedIn: Boolean(hasCookie && (s.sessionLoggedIn || mergedProfile)),
-            };
-          });
+          setSnap(s);
           if (s.products.length) setCatalog(s.products);
         }
       })
@@ -250,7 +136,20 @@ export function LatchDashboard() {
     return () => {
       cancelled = true;
     };
-  }, [config.sessionCookie, hydrated]);
+  }, [hydrated]);
+
+  useEffect(() => {
+    if (!hydrated) return;
+    const id = window.setInterval(() => {
+      void getWatchStatus()
+        .then((s) => {
+          setSnap(s);
+          if (s.products.length) setCatalog(s.products);
+        })
+        .catch(() => undefined);
+    }, 2500);
+    return () => window.clearInterval(id);
+  }, [hydrated]);
 
   useEffect(() => {
     if (!hydrated || resumed.current) return;
@@ -265,41 +164,6 @@ export function LatchDashboard() {
       })
       .catch(() => undefined);
   }, [hydrated, config]);
-
-  useEffect(() => {
-    if (!hydrated) return;
-    const id = window.setInterval(() => {
-      void getWatchStatus()
-        .then((s) => {
-          setSnap((prev) => {
-            const hasCookie = Boolean(config.sessionCookie?.trim());
-            let cachedProfile: UserProfileInfo | null = null;
-            try {
-              const p = localStorage.getItem(PROFILE_KEY);
-              if (p) cachedProfile = JSON.parse(p) as UserProfileInfo;
-            } catch {
-              /* ignore */
-            }
-            const mergedProfile = s.userProfile ?? (hasCookie ? (prev?.userProfile ?? cachedProfile) : null);
-            if (s.userProfile) {
-              try {
-                localStorage.setItem(PROFILE_KEY, JSON.stringify(s.userProfile));
-              } catch {
-                /* ignore */
-              }
-            }
-            return {
-              ...s,
-              userProfile: hasCookie ? mergedProfile : null,
-              sessionLoggedIn: Boolean(hasCookie && (s.sessionLoggedIn || mergedProfile)),
-            };
-          });
-          if (s.products.length) setCatalog(s.products);
-        })
-        .catch(() => undefined);
-    }, 2500);
-    return () => window.clearInterval(id);
-  }, [config.sessionCookie, hydrated]);
 
   useEffect(() => {
     if (!snap?.watching) return;
@@ -491,33 +355,7 @@ export function LatchDashboard() {
       ? Math.max(0, Math.round((Date.parse(snap.lastTickAt) + snap.nextPollMs - now) / 1000))
       : null;
 
-  const quickHubs = useMemo(() => {
-    const hubs: { label: string; pin: string; city: string }[] = [];
-    const userAddr = snap?.userProfile?.defaultAddress;
-    const userPin = extractAddressPincode(userAddr);
-
-    if (userPin) {
-      const isDistinct = !STANDARD_HUBS.some((h) => h.pin === userPin);
-      if (isDistinct) {
-        const city = userAddr?.city?.trim() || "Saved";
-        hubs.push({
-          label: `${city} (${userPin})`,
-          pin: userPin,
-          city,
-        });
-      }
-    }
-
-    for (const hub of STANDARD_HUBS) {
-      hubs.push({
-        label: `${hub.city} (${hub.pin})`,
-        pin: hub.pin,
-        city: hub.city,
-      });
-    }
-
-    return hubs;
-  }, [snap?.userProfile?.defaultAddress]);
+  const quickHubs = STANDARD_HUBS;
 
   async function loadPincode(overridePin?: string) {
     if (overridePin) {
@@ -530,9 +368,7 @@ export function LatchDashboard() {
     }
     setBusy("pin");
     try {
-      const result = await resolvePincode({
-        data: { pincode: pin, sessionCookie: config.sessionCookie },
-      });
+      const result = await resolvePincode({ data: { pincode: pin } });
       patch({ pincode: pin });
       setCatalog(result.products);
       toast.success(`Connected to ${result.substore.name} (${result.products.length} SKUs)`);
@@ -601,34 +437,6 @@ export function LatchDashboard() {
     toast.success(`Watching ${product.name.split(" ")[0]}`);
   }
 
-  async function checkout(sku: string) {
-    setBusy("checkout");
-    try {
-      const next = await startCheckout({ data: { sku, config } });
-      setSnap(next);
-      if (next.checkout?.status === "awaiting_payment") {
-        toast.message("Payment authorization required");
-      } else if (next.checkout?.status === "blocked") {
-        const msg = next.checkout.message || "";
-        if (msg.toLowerCase().includes("address")) {
-          toast.error("Delivery address required on Amul");
-        } else if (msg.toLowerCase().includes("login") || msg.toLowerCase().includes("session")) {
-          toast.message("Amul session login required");
-        } else {
-          toast.message(msg || "Checkout paused");
-        }
-      } else if (next.checkout?.status === "failed") {
-        toast.error(next.checkout.message);
-      } else {
-        toast.success("Checkout initialized");
-      }
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Checkout failed");
-    } finally {
-      setBusy(null);
-    }
-  }
-
   async function sendWhatsAppTest() {
     setBusy("whatsapp");
     try {
@@ -663,48 +471,11 @@ export function LatchDashboard() {
     }
   }
 
-  async function handleDisconnectSession() {
-    try {
-      localStorage.removeItem(PROFILE_KEY);
-    } catch {
-      /* ignore */
-    }
-    const nextConfig = { ...config, sessionCookie: "" };
-    setConfig(nextConfig);
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(nextConfig));
-    } catch {
-      /* ignore */
-    }
-
-    setSnap((prev) =>
-      prev
-        ? {
-            ...prev,
-            userProfile: null,
-            sessionLoggedIn: false,
-            sessionImported: false,
-            sessionReady: false,
-          }
-        : prev,
-    );
-
-    try {
-      const snapResult = await disconnectSessionAction();
-      setSnap(snapResult);
-      toast.info("Amul session disconnected");
-    } catch {
-      toast.info("Amul session disconnected");
-    }
-  }
-
   const inStockTotal = products.filter((p) => p.inStock).length;
   const inStockWatched = config.products.filter(
     (t) => products.find((p) => p.sku === t.sku)?.inStock,
   ).length;
   const outCount = products.filter((p) => !p.inStock).length;
-  const hasActiveCookie = Boolean(config.sessionCookie?.trim());
-  const userProfile = hasActiveCookie ? snap?.userProfile : null;
 
   return (
     <div className="min-h-dvh flex flex-col bg-background text-foreground pb-20 sm:pb-12">
@@ -800,9 +571,6 @@ export function LatchDashboard() {
               aria-label="Settings"
             >
               <Settings2 className="size-4" />
-              {userProfile ? (
-                <span className="absolute top-1 right-1 size-2 rounded-full bg-stock" />
-              ) : null}
             </Button>
 
             {/* Main Watcher Lever Button */}
@@ -843,17 +611,6 @@ export function LatchDashboard() {
 
       {/* Main Body */}
       <main className="mx-auto max-w-7xl w-full px-4 sm:px-6 pt-5 sm:pt-6 flex flex-col gap-6">
-        {/* Payment Required Alert Banner */}
-        {snap?.checkout && snap.checkout.status !== "failed" ? (
-          <PaymentBanner
-            checkout={snap.checkout}
-            isLoggedIn={Boolean(snap.userProfile || snap.sessionLoggedIn)}
-            onDismiss={() => {
-              void dismissCheckout().then(setSnap);
-            }}
-          />
-        ) : null}
-
         {/* 2. Top Bento Command Deck */}
         <section className="grid grid-cols-1 lg:grid-cols-12 gap-4">
           {/* Bento Tile 1: Delivery Hub Matrix (7 cols) */}
@@ -976,57 +733,45 @@ export function LatchDashboard() {
                 </div>
               </div>
 
-              {/* Auto-Order Mode */}
+              {/* Polling Interval */}
               <div
-                onClick={() => {
-                  const next = !config.autoOrder;
-                  patch({ autoOrder: next });
-                  toast.success(next ? "Auto-checkout armed" : "Auto-checkout disarmed (Notify only)");
-                }}
+                onClick={() => setSettingsOpen(true)}
                 className="rounded-lg bg-muted/40 border border-border/50 p-2.5 cursor-pointer hover:border-border transition-colors"
-                title="Click to toggle auto-order mode"
+                title="Click to adjust polling intervals"
               >
                 <span className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground block">
-                  Order Mode
+                  Polling Interval
                 </span>
                 <div className="mt-1 flex items-center gap-1.5">
                   <span
                     className={cn(
                       "size-2 rounded-full",
-                      config.autoOrder ? "bg-stock animate-pulse" : "bg-muted-foreground/60",
+                      watching ? "bg-stock animate-pulse" : "bg-muted-foreground/60",
                     )}
                   />
                   <span
                     className={cn(
-                      "text-xs font-mono font-semibold",
-                      config.autoOrder ? "text-stock" : "text-muted-foreground",
+                      "text-xs font-mono font-semibold tabular-nums",
+                      watching ? "text-stock" : "text-muted-foreground",
                     )}
                   >
-                    {config.autoOrder ? "Auto-Order Armed" : "Notify Only"}
+                    {watching
+                      ? formatPollingInterval(snap?.nextPollMs ?? config.pollMinMs)
+                      : "Standby"}
                   </span>
                 </div>
               </div>
 
-              {/* Amul Session Account */}
-              <div
-                onClick={() => setSettingsOpen(true)}
-                className="rounded-lg bg-muted/40 border border-border/50 p-2.5 cursor-pointer hover:border-border transition-colors"
-                title="Click to manage Amul account & session"
-              >
+              {/* Hub Substore */}
+              <div className="rounded-lg bg-muted/40 border border-border/50 p-2.5">
                 <span className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground block">
-                  Amul Account
+                  Hub Substore
                 </span>
                 <div className="mt-1 flex items-center gap-1.5 truncate">
-                  {userProfile ? (
-                    <>
-                      <CheckCircle2 className="size-3 text-stock shrink-0" />
-                      <span className="text-xs font-medium text-foreground truncate">
-                        {userProfile.userName.split(" ")[0]}
-                      </span>
-                    </>
-                  ) : (
-                    <span className="text-xs font-mono text-muted-foreground">Guest Session</span>
-                  )}
+                  <MapPin className="size-3 text-stock shrink-0" />
+                  <span className="text-xs font-medium text-foreground truncate">
+                    {snap?.substore?.name || (config.pincode ? config.pincode : "Not set")}
+                  </span>
                 </div>
               </div>
             </div>
@@ -1159,8 +904,6 @@ export function LatchDashboard() {
                       ),
                     })
                   }
-                  onCheckout={() => void checkout(product.sku)}
-                  checkoutBusy={busy === "checkout"}
                 />
               </div>
             ))}
@@ -1206,8 +949,8 @@ export function LatchDashboard() {
           <div className="flex items-center gap-2">
             <ShieldCheck className="size-4 text-stock shrink-0" />
             <p className="text-[11px] leading-relaxed">
-              <strong className="text-foreground">Non-Custodial Architecture:</strong> Payments stay on Amul.
-              Latch never asks for UPI PIN, OTP, CVV, or bank credentials.
+              <strong className="text-foreground">Zero-Auth Restock Radar:</strong> Latch only reads
+              public stock and pincode data. No account, checkout, or payment access.
             </p>
           </div>
           <div className="flex items-center gap-4 text-[11px] font-mono shrink-0">
@@ -1276,27 +1019,6 @@ export function LatchDashboard() {
         discordBusy={busy === "discord"}
         onTestWhatsApp={() => void sendWhatsAppTest()}
         whatsappBusy={busy === "whatsapp"}
-        userProfile={userProfile}
-        onProfileVerified={(profile) => {
-          setSnap((prev) =>
-            prev
-              ? {
-                  ...prev,
-                  userProfile: profile,
-                  sessionLoggedIn: Boolean(profile),
-                  sessionImported: Boolean(profile),
-                }
-              : prev,
-          );
-          if (profile) {
-            try {
-              localStorage.setItem(PROFILE_KEY, JSON.stringify(profile));
-            } catch {
-              /* ignore */
-            }
-          }
-        }}
-        onDisconnect={handleDisconnectSession}
       />
 
       {/* 9. Mobile Bottom Navigation Bar (sm:hidden) */}
@@ -1354,9 +1076,6 @@ export function LatchDashboard() {
         >
           <Settings2 className="size-4" />
           <span>Settings</span>
-          {userProfile ? (
-            <span className="absolute top-0 right-1 size-1.5 rounded-full bg-stock" />
-          ) : null}
         </button>
       </nav>
     </div>
@@ -1418,102 +1137,4 @@ function EmptyState({ onQuickPick }: { onQuickPick: (pin: string) => void }) {
   );
 }
 
-function getBannerTitle(checkout: NonNullable<WatchSnapshot["checkout"]>, isLoggedIn: boolean): string {
-  if (checkout.status === "awaiting_payment") return "Payment Approval Required";
-  if (checkout.status === "success") return "Order Accepted by Amul";
-  if (checkout.status === "blocked") {
-    const msg = checkout.message.toLowerCase();
-    if (msg.includes("address")) return "Delivery Address Required";
-    if (msg.includes("hold") || msg.includes("unavailable") || msg.includes("limit")) return "SKU Hold on Amul";
-    if (isLoggedIn) return "Action Required on Amul";
-    return "Paused for Amul Login";
-  }
-  return "Checkout in Progress";
-}
 
-function PaymentBanner({
-  checkout,
-  isLoggedIn = false,
-  onDismiss,
-}: {
-  checkout: NonNullable<WatchSnapshot["checkout"]>;
-  isLoggedIn?: boolean;
-  onDismiss: () => void;
-}) {
-  const href = checkout.paymentUrl || checkout.shopUrl;
-  const isAwaitingPayment = checkout.status === "awaiting_payment";
-
-  return (
-    <div className="flex flex-col gap-3 rounded-xl bg-card p-4 sm:p-5 shadow-lg border border-stock/40 bg-gradient-to-r from-card to-stock/10 latch-enter">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
-            <span
-              className={cn(
-                "inline-flex size-2.5 rounded-full",
-                isAwaitingPayment ? "bg-stock animate-ping" : "bg-muted-foreground",
-              )}
-            />
-            <p className="text-sm font-semibold tracking-tight text-foreground">
-              {getBannerTitle(checkout, isLoggedIn)}
-            </p>
-          </div>
-          <p className="mt-1 text-xs text-muted-foreground">{checkout.message}</p>
-        </div>
-
-        <div className="flex flex-wrap items-center gap-2 shrink-0">
-          {href ? (
-            <Button asChild size="sm" className="bg-stock text-primary-foreground hover:bg-stock/90 shadow-sm gap-1.5 font-medium text-xs">
-              <a href={href} target="_blank" rel="noreferrer">
-                <span>{checkout.paymentUrl ? "Authorize Payment" : "Open Cart"}</span>
-                <ExternalLink className="size-3.5" />
-              </a>
-            </Button>
-          ) : null}
-          <Button type="button" size="sm" variant="ghost" onClick={onDismiss} className="text-xs text-muted-foreground hover:text-foreground">
-            Dismiss
-          </Button>
-        </div>
-      </div>
-
-      {(checkout.addressSummary || checkout.recipientName || checkout.name) && (
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-2.5 rounded-lg border border-border/50 bg-background/60 p-3 text-xs">
-          <div>
-            <span className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground block mb-0.5">
-              Item Reserved
-            </span>
-            <p className="font-medium text-foreground truncate">{checkout.name}</p>
-            <p className="font-mono text-[11px] text-muted-foreground">
-              SKU: {checkout.sku} {checkout.quantity ? `· Qty: ${checkout.quantity}` : ""}
-            </p>
-          </div>
-
-          <div>
-            <span className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground block mb-0.5">
-              Shipping Destination
-            </span>
-            <p className="font-medium text-foreground truncate">
-              {checkout.recipientName || "Registered User"}{" "}
-              {checkout.recipientPhone ? `(${checkout.recipientPhone})` : ""}
-            </p>
-            <p className="text-[11px] text-muted-foreground truncate" title={checkout.addressSummary}>
-              {checkout.addressSummary || "Default Saved Delivery Address"}
-            </p>
-          </div>
-
-          <div>
-            <span className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground block mb-0.5">
-              Payment Gateway
-            </span>
-            <p className="font-medium text-stock truncate">
-              {checkout.paymentMethodName || "Official GCMMF Amul Gateway"}
-            </p>
-            <p className="text-[10px] text-muted-foreground">
-              Direct to GCMMF Ltd · Non-custodial
-            </p>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}

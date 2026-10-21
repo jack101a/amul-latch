@@ -1,4 +1,4 @@
-import { Check, ExternalLink, Eye, Minus, Plus, Zap } from "lucide-react";
+import { Check, ExternalLink, Eye, Minus, Plus } from "lucide-react";
 import { type AmulProduct, type TrackedProduct, productPageUrl } from "@/lib/amul/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -9,18 +9,9 @@ type Props = {
   tracked?: TrackedProduct;
   onToggle: () => void;
   onQuantity: (qty: number) => void;
-  onCheckout?: () => void;
-  checkoutBusy?: boolean;
 };
 
-export function ProductCard({
-  product,
-  tracked,
-  onToggle,
-  onQuantity,
-  onCheckout,
-  checkoutBusy,
-}: Props) {
+export function ProductCard({ product, tracked, onToggle, onQuantity }: Props) {
   const selected = Boolean(tracked);
   const isBestValue =
     typeof product.costPerGramProtein === "number" && product.costPerGramProtein <= 2.2;
@@ -203,20 +194,6 @@ export function ProductCard({
               <ExternalLink className="size-3.5" />
             </a>
           </div>
-
-          {selected && product.inStock && onCheckout ? (
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="h-9 w-full border-stock/50 text-stock hover:bg-stock/15 hover:text-stock font-medium text-xs flex items-center justify-center gap-1.5"
-              onClick={onCheckout}
-              disabled={checkoutBusy}
-            >
-              <Zap className="size-3.5 fill-current" />
-              {checkoutBusy ? "Initiating..." : "Instant Checkout (1-Click)"}
-            </Button>
-          ) : null}
         </div>
       </div>
     </article>
