@@ -1,3 +1,5 @@
+import { renderProductCardPng } from "./card";
+
 export interface DiscordEmbedField {
   name: string;
   value: string;
@@ -23,6 +25,10 @@ export interface SendDiscordWebhookInput {
   avatar_url?: string;
   content?: string;
   embeds?: DiscordEmbed[];
+  file?: {
+    buffer: Buffer;
+    filename: string;
+  };
 }
 
 export interface SendDiscordWebhookResult {
@@ -42,7 +48,7 @@ export function isValidDiscordWebhookUrl(url: string): boolean {
 }
 
 /**
- * Sends a message or embeds to a Discord webhook endpoint.
+ * Sends a message, embeds, or files to a Discord webhook endpoint.
  */
 export async function sendDiscordWebhook(
   input: SendDiscordWebhookInput
@@ -70,14 +76,29 @@ export async function sendDiscordWebhook(
   }
 
   try {
-    const res = await fetch(url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(payload),
-      signal: AbortSignal.timeout(12000),
-    });
+    let res: Response;
+
+    if (input.file) {
+      const formData = new FormData();
+      const blob = new Blob([new Uint8Array(input.file.buffer)], { type: "image/png" });
+      formData.append("files[0]", blob, input.file.filename);
+      formData.append("payload_json", JSON.stringify(payload));
+
+      res = await fetch(url, {
+        method: "POST",
+        body: formData,
+        signal: AbortSignal.timeout(15000),
+      });
+    } else {
+      res = await fetch(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(payload),
+        signal: AbortSignal.timeout(12000),
+      });
+    }
 
     if (res.status === 204 || res.status === 200) {
       return { ok: true };
@@ -99,35 +120,56 @@ export async function sendDiscordWebhook(
 
 /**
  * Sends a test notification to verify that the webhook is valid and working.
- * Showcases the exact mobile-first card layout matching user specifications.
+ * Renders and dispatches the high-fidelity product card image matching user specifications.
  */
 export async function pingDiscord(webhookUrl: string): Promise<SendDiscordWebhookResult> {
   const sampleShopUrl = "https://shop.amul.com/en/product/amul-chocolate-whey-protein-cartong-1020kg";
-  const sampleImgUrl =
-    "https://shop.amul.com/s/62fa94df8c13af2e242eba16/6a4e2160fdab14de18031795/01-hero-image_amul-whey-protein-carton-chocolateg-1020kg.png";
 
-  return sendDiscordWebhook({
-    webhookUrl,
-    username: "⚡ Latch Amul Radar",
-    embeds: [
-      {
-        author: { name: "AMUL • WHEY PROTEIN" },
-        title: "Amul Chocolate Whey Protein (30 Sachets)",
-        url: sampleShopUrl,
-        color: 0x16a34a,
-        thumbnail: { url: sampleImgUrl },
-        description: [
-          "💰 **Price:** **₹2,500**",
-          "📦 **Stock:** 🟢 **549 boxes** available",
-          "💪 **Yield:** 750g total · 25g/sachet",
-          "⚡ **Value:** ₹2.45/g 🔥 **Best Value**",
-          "📍 **Hub:** 380009 · Gujarat HQ",
-          "",
-          `👉 [**⚡ Buy on Amul Store ↗**](${sampleShopUrl})`,
-        ].join("\n"),
-        footer: { text: "Latch Amul Radar • 380009" },
-        timestamp: new Date().toISOString(),
+  try {
+    const cardBuffer = await renderProductCardPng({
+      category: "AMUL • WHEY PROTEIN",
+      name: "Amul Chocolate Whey Protein (30 Sachets)",
+      priceINR: 2500,
+      stockUnits: 549,
+      unitLabel: "boxes",
+      yieldText: "750g total · 25g/sachet",
+      costPerGram: 2.45,
+      pincode: "380009",
+      depot: "Gujarat HQ",
+    });
+
+    return sendDiscordWebhook({
+      webhookUrl,
+      username: "⚡ Latch Amul Radar",
+      content: `### [⚡ Buy Amul Chocolate Whey Protein on Amul Store ↗](${sampleShopUrl})`,
+      file: {
+        buffer: cardBuffer,
+        filename: "amul-product-card.png",
       },
-    ],
-  });
+    });
+  } catch {
+    return sendDiscordWebhook({
+      webhookUrl,
+      username: "⚡ Latch Amul Radar",
+      embeds: [
+        {
+          author: { name: "AMUL • WHEY PROTEIN" },
+          title: "Amul Chocolate Whey Protein (30 Sachets)",
+          url: sampleShopUrl,
+          color: 0x16a34a,
+          description: [
+            "💰 **Price:** **₹2,500**",
+            "📦 **Stock:** 🟢 **549 boxes** available",
+            "💪 **Yield:** 750g total · 25g/sachet",
+            "⚡ **Value:** ₹2.45/g 🔥 **Best Value**",
+            "📍 **Hub:** 380009 · Gujarat HQ",
+            "",
+            `👉 [**⚡ Buy on Amul Store ↗**](${sampleShopUrl})`,
+          ].join("\n"),
+          footer: { text: "Latch Amul Radar • 380009" },
+          timestamp: new Date().toISOString(),
+        },
+      ],
+    });
+  }
 }

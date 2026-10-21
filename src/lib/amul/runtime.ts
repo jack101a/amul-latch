@@ -1,6 +1,7 @@
 import { AmulClient } from "./client";
 import { sendCallMeBot } from "./callmebot";
 import { sendDiscordWebhook, pingDiscord, type DiscordEmbed } from "./discord";
+import { renderProductCardPng } from "./card";
 import {
   DEFAULT_CONFIG,
   productImageUrl,
@@ -359,6 +360,24 @@ async function poll() {
       descLines.push("");
       descLines.push(`👉 [**⚡ Buy on Amul Store ↗**](${shopUrl})`);
 
+      let cardBuffer: Buffer | undefined;
+      try {
+        cardBuffer = await renderProductCardPng({
+          category: headerCategory,
+          name: live.name,
+          priceINR: live.price,
+          stockUnits,
+          unitLabel,
+          yieldText: yieldStr,
+          costPerGram: live.costPerGramProtein,
+          pincode: s.config.pincode,
+          depot: depotName,
+          thumbnailUrl: imgUrl,
+        });
+      } catch (err) {
+        console.warn("Card render error:", err);
+      }
+
       notify(
         `🚨 **RESTOCK ALERT:** **${live.name}** is now IN STOCK (${stockUnits} available) at **${s.config.pincode}**! 👉 ${shopUrl}`,
         {
@@ -369,6 +388,7 @@ async function poll() {
           color: 0x16a34a,
           thumbnailUrl: imgUrl,
           footerText: `Latch Amul Radar • ${s.config.pincode}`,
+          cardImageBuffer: cardBuffer,
         },
       );
     }
@@ -512,6 +532,7 @@ export interface NotificationMeta {
   thumbnailUrl?: string | null;
   imageUrl?: string | null;
   footerText?: string;
+  cardImageBuffer?: Buffer;
 }
 
 function notify(text: string, meta?: NotificationMeta) {
@@ -528,24 +549,38 @@ function notify(text: string, meta?: NotificationMeta) {
   }
 
   if (s.config.discordEnabled && s.config.discordWebhookUrl) {
-    const embed: DiscordEmbed = {
-      author: meta?.authorName ? { name: meta.authorName } : undefined,
-      title: meta?.title || "⚡ Latch Amul Alert",
-      description: meta?.description || (meta?.fields && meta.fields.length > 0 ? undefined : text),
-      url: meta?.url,
-      color: meta?.color ?? 0x00e676,
-      fields: meta?.fields,
-      thumbnail: meta?.thumbnailUrl ? { url: meta.thumbnailUrl } : undefined,
-      image: meta?.imageUrl ? { url: meta.imageUrl } : undefined,
-      footer: { text: meta?.footerText || "Latch Amul Radar • Non-Custodial Zero-Auth" },
-      timestamp: new Date().toISOString(),
-    };
-    void sendDiscordWebhook({
-      webhookUrl: s.config.discordWebhookUrl,
-      username: "⚡ Latch Amul Radar",
-      embeds: [embed],
-    }).then((res) => {
-      if (!res.ok) pushEvent("discord", "error", "Discord webhook failed", res.error);
-    });
+    if (meta?.cardImageBuffer) {
+      void sendDiscordWebhook({
+        webhookUrl: s.config.discordWebhookUrl,
+        username: "⚡ Latch Amul Radar",
+        content: `### [⚡ Buy ${meta.title || "Now"} on Amul Store ↗](${meta.url || "https://shop.amul.com"})`,
+        file: {
+          buffer: meta.cardImageBuffer,
+          filename: "amul-product-card.png",
+        },
+      }).then((res) => {
+        if (!res.ok) pushEvent("discord", "error", "Discord webhook failed", res.error);
+      });
+    } else {
+      const embed: DiscordEmbed = {
+        author: meta?.authorName ? { name: meta.authorName } : undefined,
+        title: meta?.title || "⚡ Latch Amul Alert",
+        description: meta?.description || (meta?.fields && meta.fields.length > 0 ? undefined : text),
+        url: meta?.url,
+        color: meta?.color ?? 0x00e676,
+        fields: meta?.fields,
+        thumbnail: meta?.thumbnailUrl ? { url: meta.thumbnailUrl } : undefined,
+        image: meta?.imageUrl ? { url: meta.imageUrl } : undefined,
+        footer: { text: meta?.footerText || "Latch Amul Radar • Non-Custodial Zero-Auth" },
+        timestamp: new Date().toISOString(),
+      };
+      void sendDiscordWebhook({
+        webhookUrl: s.config.discordWebhookUrl,
+        username: "⚡ Latch Amul Radar",
+        embeds: [embed],
+      }).then((res) => {
+        if (!res.ok) pushEvent("discord", "error", "Discord webhook failed", res.error);
+      });
+    }
   }
 }
