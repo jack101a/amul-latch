@@ -99,7 +99,7 @@ export async function sendDiscordWebhook(
 
 /**
  * Sends a test notification to verify that the webhook is valid and working.
- * Showcases the mobile-first clean restock alert format with small thumbnail and high-signal telemetry.
+ * Showcases the exact mobile-first card layout matching user specifications.
  */
 export async function pingDiscord(webhookUrl: string): Promise<SendDiscordWebhookResult> {
   const sampleShopUrl = "https://shop.amul.com/en/product/amul-chocolate-whey-protein-cartong-1020kg";
@@ -111,20 +111,29 @@ export async function pingDiscord(webhookUrl: string): Promise<SendDiscordWebhoo
     username: "⚡ Latch Amul Radar",
     embeds: [
       {
-        title: "🚨 In Stock: Amul Chocolate Whey Protein (30 Sachets)",
+        author: { name: "AMUL • WHEY PROTEIN" },
+        title: "₹2,500",
         url: sampleShopUrl,
-        color: 0x00e676,
+        color: 0x16a34a,
         thumbnail: { url: sampleImgUrl },
         description: [
-          "🏷️ **Price:** ₹2,500",
-          "📦 **Live Stock:** 🟢 **549 boxes** available",
-          "💪 **Protein Yield:** 750g · 25g/sachet",
-          "⚡ **Value Tier:** ₹2.45/g 🔥 *Best Value*",
-          "📍 **Regional Hub:** 380009 · Gujarat HQ",
+          "**Amul Chocolate Whey Protein (30 Sachets)**",
+          "` 🟢 549 boxes in stock `",
           "",
-          `### [⚡ Buy on Amul Store →](${sampleShopUrl})`,
+          "────────────────────────",
+          "",
+          "-# 🏋️ PROTEIN YIELD",
+          "**750g total · 25g/sachet**",
+          "",
+          "-# ⚡ VALUE TIER",
+          "**₹2.45/g**  ` 🔥 BEST VALUE `",
+          "",
+          "-# 📍 REGIONAL HUB",
+          "**380009 · Gujarat HQ**",
+          "",
+          `### [⚡ Buy on Amul Store ↗](${sampleShopUrl})`,
         ].join("\n"),
-        footer: { text: "Latch Amul Radar • Test Notification • Channel Connected" },
+        footer: { text: "Compact mobile preview · Minimal image · All product details included" },
         timestamp: new Date().toISOString(),
       },
     ],

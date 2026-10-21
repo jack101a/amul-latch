@@ -339,34 +339,44 @@ async function poll() {
       const yieldStr = formatProteinYield(live.name, live.alias, live.proteinGrams);
       const unitLabel = isWhey ? "boxes" : isShake ? "cases" : "boxes";
       const depotName = s.substore?.name || "Gujarat HQ";
+      const headerCategory = productCategoryHeader(live.name);
 
       const descLines: string[] = [
-        `🏷️ **Price:** ₹${live.price.toLocaleString("en-IN")}`,
-        `📦 **Live Stock:** 🟢 **${stockUnits} ${unitLabel}** available`,
+        `**${live.name}**`,
+        `\` 🟢 ${stockUnits} ${unitLabel} in stock \``,
+        "",
+        "────────────────────────",
+        "",
       ];
 
       if (yieldStr) {
-        descLines.push(`💪 **Protein Yield:** ${yieldStr}`);
+        descLines.push("-# 🏋️ PROTEIN YIELD");
+        descLines.push(`**${yieldStr}**`);
+        descLines.push("");
       }
 
       if (live.costPerGramProtein) {
         const isBestValue = live.costPerGramProtein <= 2.5;
-        descLines.push(`⚡ **Value Tier:** ₹${live.costPerGramProtein}/g${isBestValue ? " 🔥 *Best Value*" : ""}`);
+        descLines.push("-# ⚡ VALUE TIER");
+        descLines.push(`**₹${live.costPerGramProtein}/g**${isBestValue ? "  ` 🔥 BEST VALUE `" : ""}`);
+        descLines.push("");
       }
 
-      descLines.push(`📍 **Regional Hub:** ${s.config.pincode} · ${depotName}`);
+      descLines.push("-# 📍 REGIONAL HUB");
+      descLines.push(`**${s.config.pincode} · ${depotName}**`);
       descLines.push("");
-      descLines.push(`### [⚡ Buy on Amul Store →](${shopUrl})`);
+      descLines.push(`### [⚡ Buy on Amul Store ↗](${shopUrl})`);
 
       notify(
         `🚨 **RESTOCK ALERT:** **${live.name}** is now IN STOCK (${stockUnits} available) at **${s.config.pincode}**! 👉 ${shopUrl}`,
         {
-          title: `🚨 In Stock: ${live.name}`,
+          authorName: headerCategory,
+          title: `₹${live.price.toLocaleString("en-IN")}`,
           description: descLines.join("\n"),
           url: shopUrl,
-          color,
+          color: 0x16a34a,
           thumbnailUrl: imgUrl,
-          footerText: `Latch Amul Radar • ${s.config.pincode}`,
+          footerText: "Compact mobile preview · Minimal image · All product details included",
         },
       );
     }
@@ -397,6 +407,15 @@ async function ensureClient(pincode: string): Promise<AmulClient> {
   s.client = client;
   s.sessionReady = true;
   return client;
+}
+
+export function productCategoryHeader(name: string): string {
+  const lower = name.toLowerCase();
+  if (lower.includes("whey")) return "AMUL • WHEY PROTEIN";
+  if (lower.includes("shake") || lower.includes("smoothie") || lower.includes("kool")) return "AMUL • PROTEIN SHAKE";
+  if (lower.includes("buttermilk") || lower.includes("chaas") || lower.includes("lassi")) return "AMUL • HIGH PROTEIN BUTTERMILK";
+  if (lower.includes("paneer")) return "AMUL • HIGH PROTEIN PANEER";
+  return "AMUL • PROTEIN NUTRITION";
 }
 
 /**
