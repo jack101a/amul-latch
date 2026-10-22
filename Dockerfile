@@ -38,4 +38,4 @@ COPY --from=build /app ./
 
 EXPOSE 8082
 
-CMD ["node", "scripts/with-app-env.mjs", "./node_modules/.bin/vite", "preview", "--host", "0.0.0.0", "--port", "8082"]
+CMD ["node", ".output/server/index.mjs"]
