@@ -36,6 +36,8 @@ export type EventKind =
   | "pincode_set"
   | "poll"
   | "restock"
+  | "price_drop"
+  | "discount"
   | "checkout_started"
   | "cart_updated"
   | "payment_required"
@@ -74,6 +76,9 @@ export type AmulProduct = {
   name: string;
   alias: string;
   price: number;
+  comparePrice?: number | null;
+  discountAmount?: number | null;
+  discountPct?: number | null;
   available: number;
   inventoryQuantity: number;
   inventoryLowStock: number;
@@ -83,6 +88,8 @@ export type AmulProduct = {
   productUrl: string;
   proteinGrams?: number | null;
   costPerGramProtein?: number | null;
+  proteinPerServing?: number | null;
+  servingSizeText?: string | null;
 };
 
 export type SubstoreInfo = {
@@ -159,6 +166,7 @@ export type WatchSnapshot = {
   events: ActivityEvent[];
   lastError: string | null;
   amulReachable: boolean;
+  previousPrices?: Record<string, number>;
 };
 
 export const DEFAULT_CONFIG: AppConfig = {
@@ -175,8 +183,8 @@ export const DEFAULT_CONFIG: AppConfig = {
   orderCooldownMs: 45 * 60 * 1000,
 };
 
-export function productImageUrl(image: string | undefined | null): string | null {
-  if (!image) return null;
+export function productImageUrl(image?: any): string | null {
+  if (typeof image !== "string" || !image.trim()) return null;
   if (image.startsWith("http")) return image;
   const clean = image.replace(/^\//, "");
   if (clean.startsWith("s/")) return `${AMUL_ORIGIN}/${clean}`;
@@ -201,7 +209,8 @@ export function isInStock(
   return true;
 }
 
-export function maskSecret(value: string): string {
+export function maskSecret(value?: any): string {
+  if (typeof value !== "string" || !value.trim()) return "";
   const v = value.trim();
   if (v.length <= 6) return v ? "••••" : "";
   return `${v.slice(0, 3)}…${v.slice(-3)}`;
@@ -210,8 +219,8 @@ export function maskSecret(value: string): string {
 export function extractPackMultiplier(name: string, alias?: string): number {
   const text = `${name || ""} ${alias || ""}`.toLowerCase();
 
-  // 1. "pack of 30", "pack of 10", "pack of 8", "pack of 32"
-  const packOfMatch = text.match(/\bpack\s*of\s*(\d{1,3})\b/);
+  // 1. "pack of 30", "pack 8", "pack of 10", "pack of 8", "pack of 32"
+  const packOfMatch = text.match(/\bpack\s*(?:of\s*)?(\d{1,3})\b/);
   if (packOfMatch) {
     const count = parseInt(packOfMatch[1], 10);
     if (count > 0 && count <= 200) return count;
@@ -234,96 +243,200 @@ export function extractPackMultiplier(name: string, alias?: string): number {
   return 1;
 }
 
-export function extractProteinGrams(name: string, alias?: string): number | null {
-  const text = `${name || ""} ${alias || ""}`.toLowerCase();
-  let baseGrams: number | null = null;
+export function stripHtml(s?: any): string {
+  if (typeof s !== "string" || !s) return "";
+  return s
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&ndash;/gi, "-")
+    .replace(/&rsquo;/gi, "'")
+    .replace(/\s+/g, " ")
+    .trim();
+}
 
-  // 1. Explicit "<num>g protein" or "<num> g of protein" (e.g. "15g Protein", "25 g Protein", "35g of protein")
-  const explicitMatch = text.match(/(\d+(?:\.\d+)?)\s*(?:g|gm|gms|grams?)\s*(?:of\s*)?protein\b/);
-  if (explicitMatch) {
-    const val = parseFloat(explicitMatch[1]);
-    if (Number.isFinite(val) && val > 0) baseGrams = val;
+export interface NutritionInfo {
+  proteinGrams: number | null;
+  proteinPerServing: number | null;
+  servingSizeText: string | null;
+}
+
+export function extractNutritionInfo(
+  name: string,
+  alias?: string,
+  metafields?: Record<string, any> | null,
+  description?: string | null,
+): NutritionInfo {
+  if (!name && !alias) {
+    return { proteinGrams: null, proteinPerServing: null, servingSizeText: null };
   }
 
-  // 2. Slug style in aliases (e.g. "25g-protein", "15g-protein", "protein-25g")
-  if (baseGrams === null) {
-    const slugMatch =
-      text.match(/(?:^|[-_])(\d+(?:\.\d+)?)-?g-?protein\b/) ||
-      text.match(/\bprotein-?(\d+(?:\.\d+)?)-?g(?:[-_]|$)/);
-    if (slugMatch) {
-      const val = parseFloat(slugMatch[1]);
-      if (Number.isFinite(val) && val > 0) baseGrams = val;
-    }
-  }
+  const title = `${name || ""} ${alias || ""}`.toLowerCase();
+  const cleanBenefits = stripHtml(metafields?.benefits);
+  const cleanHowTo = stripHtml(metafields?.how_to_useit);
+  const cleanDesc = stripHtml(description);
+  const metaText = `${cleanBenefits} ${cleanHowTo} ${cleanDesc}`.toLowerCase();
 
-  // 3. "protein <num>g" (e.g. "Protein: 25g" or "protein - 15g")
-  if (baseGrams === null) {
-    const prefixMatch = text.match(
-      /protein\s*(?:content|contains)?\s*[:\-\s]\s*(\d+(?:\.\d+)?)\s*(?:g|gm|gms|grams?)\b/,
-    );
-    if (prefixMatch) {
-      const val = parseFloat(prefixMatch[1]);
-      if (Number.isFinite(val) && val > 0) baseGrams = val;
-    }
-  }
+  // Non-protein candidate check
+  const isProtein =
+    title.includes("protein") ||
+    title.includes("whey") ||
+    title.includes("chaas") ||
+    title.includes("lassi") ||
+    title.includes("buttermilk") ||
+    title.includes("peanut spread") ||
+    title.includes("peanut butter") ||
+    metaText.includes("protein");
 
-  // 4. Parentheses with gram e.g. "(15g)" or "(25 g)" or "(35g)" or "(70 g)"
-  if (baseGrams === null) {
-    const parenMatch = text.match(/\(\s*(\d+(?:\.\d+)?)\s*(?:g|gm|gms|grams?)\s*\)/);
-    if (parenMatch) {
-      const val = parseFloat(parenMatch[1]);
-      if (Number.isFinite(val) && val > 0 && val <= 100) baseGrams = val;
-    }
+  if (!isProtein) {
+    return { proteinGrams: null, proteinPerServing: null, servingSizeText: null };
   }
-
-  // 5. Explicit standalone protein gram patterns e.g. " 10g", " 15g", " 20g", " 24 g", " 25g", " 35g", " 70 g"
-  if (baseGrams === null) {
-    const specificMatch = text.match(/\b(10|15|20|24|25|30|35|40|50|60|70|75|80)\s*(?:g|gm|gms|grams?)\b/);
-    if (specificMatch) {
-      const val = parseFloat(specificMatch[1]);
-      if (Number.isFinite(val) && val > 0) baseGrams = val;
-    }
-  }
-
-  // 6. Whey sachet handling:
-  // Amul Whey Protein sachets are 32g-34g gross powder weight containing 24g-25g protein.
-  if (
-    baseGrams === null &&
-    text.includes("whey") &&
-    (text.includes("32") || text.includes("34") || text.includes("sachet"))
-  ) {
-    baseGrams = text.includes("32") ? 24 : 25;
-  } else if (
-    baseGrams === null &&
-    text.includes("sachet") &&
-    (text.includes("32") || text.includes("34"))
-  ) {
-    baseGrams = 25;
-  }
-
-  // 7. General number with "g" if 10 <= val <= 85 (excluding pack weights like 200g, 250ml, etc.)
-  if (baseGrams === null) {
-    const genericGMatch = text.match(/\b(\d{1,2}(?:\.\d+)?)\s*(?:g|gm|gms|grams?)\b/);
-    if (genericGMatch) {
-      const val = parseFloat(genericGMatch[1]);
-      if (Number.isFinite(val) && val >= 10 && val <= 85) baseGrams = val;
-    }
-  }
-
-  // 8. Product fallbacks for standard Amul offerings
-  if (baseGrams === null) {
-    if (text.includes("lassi")) baseGrams = 15;
-    else if (text.includes("buttermilk") || text.includes("chaas") || text.includes("chach")) baseGrams = 15;
-    else if (text.includes("kool") && (text.includes("shake") || text.includes("milkshake"))) baseGrams = 10;
-    else if (text.includes("shake")) baseGrams = 20;
-    else if (text.includes("paneer")) baseGrams = 50;
-    else if (text.includes("whey")) baseGrams = 25;
-  }
-
-  if (baseGrams === null) return null;
 
   const multiplier = extractPackMultiplier(name, alias);
-  return Number((baseGrams * multiplier).toFixed(1));
+  let baseGrams: number | null = null;
+  let proteinPerServing: number | null = null;
+  let servingSizeText: string | null = null;
+
+  // Tier 1: Title-based Product Classification (Prevents Cross-Contamination)
+  if (title.includes("wheat flour") || title.includes("atta")) {
+    baseGrams = 20;
+    proteinPerServing = 20;
+    servingSizeText = "65g sachet";
+  } else if (title.includes("cube") || title.includes("cubes")) {
+    baseGrams = 125;
+    proteinPerServing = 25;
+    servingSizeText = "38g serving";
+  } else if (title.includes("peanut spread") || (title.includes("peanut") && title.includes("spread"))) {
+    baseGrams = 100;
+    proteinPerServing = 10;
+    servingSizeText = "25g serving";
+  } else if (title.includes("peanut butter")) {
+    const weightMatch = title.match(/\b(\d+(?:\.\d+)?)\s*(?:g|gm|gms)\b/);
+    const weight = weightMatch ? parseFloat(weightMatch[1]) : 300;
+    baseGrams = Number((weight * 0.26).toFixed(1));
+    proteinPerServing = 8;
+    servingSizeText = `${weight}g jar`;
+  } else if (title.includes("paneer")) {
+    baseGrams = 100;
+    proteinPerServing = 25;
+    servingSizeText = "400g tin";
+  } else if (title.includes("whey")) {
+    if (title.match(/\b24\s*(?:g|gm|gms|grams?)\b/)) {
+      baseGrams = 24;
+      proteinPerServing = 24;
+    } else {
+      baseGrams = 25;
+      proteinPerServing = 25;
+    }
+    servingSizeText = "sachet";
+  } else if (title.includes("buttermilk") || title.includes("chaas") || title.includes("chach")) {
+    baseGrams = 15;
+    proteinPerServing = 15;
+    servingSizeText = "200 mL bottle";
+  } else if (title.includes("kool") || title.includes("milkshake")) {
+    baseGrams = 10;
+    proteinPerServing = 10;
+    servingSizeText = "180 mL pack";
+  } else if (title.includes("shake")) {
+    baseGrams = 20;
+    proteinPerServing = 20;
+    servingSizeText = "200 mL bottle";
+  } else if (title.includes("lassi")) {
+    baseGrams = 15;
+    proteinPerServing = 15;
+    servingSizeText = "200 mL pack";
+  } else if (/\bmilk\b/.test(title)) {
+    baseGrams = 35;
+    proteinPerServing = 35;
+    servingSizeText = "250 mL pack";
+  }
+
+  // Tier 2: Metafield & Description Regex Extraction (For novel / unlisted SKUs)
+  if (baseGrams === null && metaText) {
+    const servingMatch = metaText.match(
+      /(\d+(?:\.\d+)?)\s*(?:g|gm|gms|grams?)\s*(?:of\s*)?(?:whey\s*)?protein\s*per\s*(\d+(?:\.\d+)?)\s*(?:g|gm|gms|ml)\s*serving/i,
+    );
+    if (servingMatch) {
+      const servingProt = parseFloat(servingMatch[1]);
+      const servingSize = parseFloat(servingMatch[2]);
+      proteinPerServing = servingProt;
+      servingSizeText = `${servingSize}g serving`;
+      const packWeightMatch = title.match(/\b(\d+(?:\.\d+)?)\s*(?:g|gm|gms|ml)\b/);
+      if (packWeightMatch && servingSize > 0) {
+        const packWeight = parseFloat(packWeightMatch[1]);
+        const servings = packWeight / servingSize;
+        baseGrams = Number((servings * servingProt).toFixed(1));
+      } else {
+        baseGrams = servingProt;
+      }
+    } else {
+      const metaGMatch = metaText.match(
+        /(\d+(?:\.\d+)?)\s*(?:g|gm|gms|grams?)\s*(?:of\s*)?(?:whey\s*)?protein(?:\s*per\s*(?:pack|serving|bottle|sachet|unit|tin|can|\d+\s*(?:g|ml|gm)\s*(?:pack|serving|bottle|sachet|tin|can)))?/i,
+      );
+      if (metaGMatch) {
+        baseGrams = parseFloat(metaGMatch[1]);
+        proteinPerServing = baseGrams;
+      } else {
+        const metaPctMatch = metaText.match(
+          /(?:high\s*protein\s*[:\-\s]\s*)?(\d+(?:\.\d+)?)\s*%\s*(?:protein|of\s*protein)?/i,
+        );
+        if (metaPctMatch) {
+          const pct = parseFloat(metaPctMatch[1]);
+          const unitWeightMatch = title.match(/\b(\d+(?:\.\d+)?)\s*(?:g|gm|gms|ml)\b/);
+          if (unitWeightMatch) {
+            const unitWeight = parseFloat(unitWeightMatch[1]);
+            baseGrams = Number(((pct / 100) * unitWeight).toFixed(1));
+            proteinPerServing = baseGrams;
+          }
+        }
+      }
+    }
+  }
+
+  // Tier 3: Title Fallbacks (Regex patterns in title)
+  if (baseGrams === null) {
+    const explicitMatch = title.match(/(\d+(?:\.\d+)?)\s*(?:g|gm|gms|grams?)\s*(?:of\s*)?protein\b/);
+    if (explicitMatch) {
+      baseGrams = parseFloat(explicitMatch[1]);
+      proteinPerServing = baseGrams;
+    }
+  }
+
+  if (baseGrams === null) {
+    const specificMatch = title.match(/\b(10|15|20|24|25|30|35|40|50|60|70|75|80)\s*(?:g|gm|gms|grams?)\b/);
+    if (specificMatch) {
+      baseGrams = parseFloat(specificMatch[1]);
+      proteinPerServing = baseGrams;
+    }
+  }
+
+  if (baseGrams === null) {
+    const parenMatch = title.match(/\(\s*(\d+(?:\.\d+)?)\s*(?:g|gm|gms|grams?)\s*\)/);
+    if (parenMatch) {
+      const val = parseFloat(parenMatch[1]);
+      if (Number.isFinite(val) && val > 0 && val <= 100) {
+        baseGrams = val;
+        proteinPerServing = val;
+      }
+    }
+  }
+
+  const totalProteinGrams = baseGrams !== null ? Number((baseGrams * multiplier).toFixed(1)) : null;
+  return {
+    proteinGrams: totalProteinGrams,
+    proteinPerServing:
+      proteinPerServing ??
+      (totalProteinGrams !== null && multiplier > 1 ? Math.round(totalProteinGrams / multiplier) : totalProteinGrams),
+    servingSizeText: servingSizeText ?? (multiplier > 1 ? `${multiplier} units` : null),
+  };
+}
+
+export function extractProteinGrams(
+  name: string,
+  alias?: string,
+  metafields?: Record<string, any> | null,
+  description?: string | null,
+): number | null {
+  return extractNutritionInfo(name, alias, metafields, description).proteinGrams;
 }
 
 export function calculateProteinCostPerGram(
@@ -360,14 +473,16 @@ export function formatProteinYield(
 
   let unit = "serving";
   const text = `${name || ""} ${alias || ""}`.toLowerCase();
-  if (text.includes("sachet") || text.includes("whey")) {
+  if (text.includes("sachet") || text.includes("whey") || text.includes("flour") || text.includes("atta")) {
     unit = "sachet";
   } else if (text.includes("shake") || text.includes("smoothie") || text.includes("kool")) {
     unit = "shake";
   } else if (text.includes("buttermilk") || text.includes("chaas") || text.includes("lassi")) {
     unit = "bottle";
-  } else if (text.includes("paneer")) {
+  } else if (text.includes("paneer") || text.includes("cube") || /\bmilk\b/.test(text)) {
     unit = "pack";
+  } else if (text.includes("spread") || text.includes("butter")) {
+    unit = "jar";
   } else if (multiplier > 1) {
     unit = "unit";
   }

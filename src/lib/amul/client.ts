@@ -7,7 +7,10 @@ import {
   type UserProfileInfo,
   type SessionVerificationResult,
   calculateProteinCostPerGram,
+  extractNutritionInfo,
+  extractPackMultiplier,
   extractProteinGrams,
+  formatProteinYield,
   isInStock,
   productImageUrl,
   productPageUrl,
@@ -39,6 +42,11 @@ const PRODUCT_FIELDS = [
   "price",
   "compare_price",
   "original_price",
+  "compare_price_discount",
+  "compare_price_discount_pct",
+  "discounts_total",
+  "discounts_percentage",
+  "description",
   "images",
   "metafields",
   "discounts",
@@ -57,13 +65,77 @@ const PRODUCT_FIELDS = [
   "lp_seller_ids",
 ] as const;
 
+export type PromoBanner = {
+  id: string;
+  name: string;
+  alias: string;
+  imageUrl: string;
+  image: string;
+  publish: string | number | boolean;
+  sortOrder: number;
+  substore: string[];
+  updatedOn?: string;
+};
+
+export type CouponValidationResult = {
+  valid: boolean;
+  discount?: number;
+  message?: string;
+  couponCode?: string;
+};
+
+type RawBanner = {
+  _id: string;
+  name?: string;
+  alias?: string;
+  image?: string;
+  publish?: string | number | boolean;
+  substore?: string[];
+  sort_order?: number;
+  created_on?: string;
+  updated_on?: string;
+  metafields?: Record<string, unknown>;
+  [key: string]: unknown;
+};
+
+type BannersResponse = {
+  messages?: unknown[];
+  fileBaseUrl?: string;
+  data?: RawBanner[];
+  paging?: { total?: number; limit?: number; start?: number };
+};
+
 type RawProduct = {
   _id: string;
   name: string;
   alias: string;
   sku: string;
-  price?: number;
-  compare_price?: number;
+  price?: number | string;
+  compare_price?: number | string;
+  original_price?: number | string;
+  compare_price_discount?: number | string;
+  compare_price_discount_pct?: number | string;
+  discounts_total?: number | string;
+  discounts_percentage?: number | string;
+  discounts?: Array<{
+    _id?: string;
+    name?: string;
+    saved_amount?: number;
+    type?: string;
+    amount?: number;
+    description?: string;
+  }>;
+  description?: string;
+  metafields?: {
+    benefits?: string;
+    how_to_useit?: string;
+    ingredients?: string;
+    uom?: string;
+    weight?: string;
+    product_type?: string;
+    additional_infomation?: string;
+    [key: string]: unknown;
+  } | Record<string, any>;
   available?: number;
   inventory_quantity?: number;
   inventory_low_stock_quantity?: number;
@@ -338,6 +410,154 @@ export class AmulClient {
         linked_product_id: null,
       },
     });
+  }
+
+  async listPromoBanners(): Promise<PromoBanner[]> {
+    if (this.isDemoSession) {
+      return [
+        {
+          id: "633a741d7bc785c6928a2e2c",
+          name: "HB Protein",
+          alias: "home-banner-protein",
+          imageUrl: `${AMUL_ORIGIN}/s/${AMUL_STORE_ID}/6549e729b86f2d8e7f4b1be1/amul_new_protein-bm_lassi_web-banner.png`,
+          image: "6549e729b86f2d8e7f4b1be1/amul_new_protein-bm_lassi_web-banner.png",
+          publish: "1",
+          sortOrder: 0,
+          substore: ["all"],
+          updatedOn: "2025-06-25T07:24:24.530Z",
+        },
+        {
+          id: "649a97246f6151125a03fb7d",
+          name: "HB Camel Milk Range",
+          alias: "hb-camel-milk-range",
+          imageUrl: `${AMUL_ORIGIN}/s/${AMUL_STORE_ID}/649a973cc44a9f32ab4c47ac/web-banner_camel-range.png`,
+          image: "649a973cc44a9f32ab4c47ac/web-banner_camel-range.png",
+          publish: "1",
+          sortOrder: 0,
+          substore: ["all"],
+          updatedOn: "2025-06-25T07:23:49.076Z",
+        },
+      ];
+    }
+
+    if (!this.hasSession()) {
+      await this.init();
+    }
+
+    const json = await this.requestJson<BannersResponse>(
+      `${AMUL_ORIGIN}/api/1/entity/ms.banners?limit=20`,
+    );
+
+    const fileBaseUrl = String(json.fileBaseUrl || `${AMUL_ORIGIN}/s/${AMUL_STORE_ID}/`);
+    const cleanBase = fileBaseUrl.endsWith("/") ? fileBaseUrl : `${fileBaseUrl}/`;
+    const banners = Array.isArray(json.data) ? json.data : [];
+
+    return banners.map((b) => {
+      const rawImage = String(b.image || "").trim();
+      let imageUrl = "";
+      if (rawImage.startsWith("http://") || rawImage.startsWith("https://")) {
+        imageUrl = rawImage;
+      } else {
+        const cleanPath = rawImage.replace(/^\//, "");
+        imageUrl = `${cleanBase}${cleanPath}`;
+      }
+      return {
+        id: String(b._id || ""),
+        name: String(b.name || ""),
+        alias: String(b.alias || ""),
+        imageUrl,
+        image: rawImage,
+        publish: b.publish ?? "1",
+        sortOrder: typeof b.sort_order === "number" ? b.sort_order : 0,
+        substore: Array.isArray(b.substore) ? b.substore.map(String) : [],
+        updatedOn: b.updated_on ? String(b.updated_on) : undefined,
+      };
+    });
+  }
+
+  async checkCoupon(
+    couponCode: string,
+    cartId?: string,
+  ): Promise<CouponValidationResult> {
+    const code = String(couponCode || "").trim();
+    if (!code) {
+      return {
+        valid: false,
+        discount: 0,
+        message: "Coupon code cannot be empty",
+        couponCode: "",
+      };
+    }
+
+    if (this.isDemoSession) {
+      if (code.toUpperCase() === "AMUL10" || code.toUpperCase() === "PROTEIN10") {
+        return {
+          valid: true,
+          discount: 100,
+          message: "Coupon applied successfully (Demo)",
+          couponCode: code,
+        };
+      }
+      return {
+        valid: false,
+        discount: 0,
+        message: "Coupon Code is not valid",
+        couponCode: code,
+      };
+    }
+
+    if (!this.hasSession()) {
+      await this.init();
+    }
+
+    let targetCartId = cartId;
+    if (!targetCartId) {
+      const cart = await this.createCart();
+      targetCartId = String(cart._id);
+    }
+
+    try {
+      const cart = await this.command("ms.carts", "applyCoupon", {
+        recordId: targetCartId,
+        data: { coupon_code: code },
+      });
+
+      const discount = Number(cart.discounts_total ?? cart.discount_total ?? 0);
+
+      try {
+        await this.command("ms.carts", "removeCoupon", {
+          recordId: targetCartId,
+          data: {},
+        });
+      } catch {
+        // best effort cleanup
+      }
+
+      return {
+        valid: true,
+        discount,
+        message: "Coupon applied successfully",
+        couponCode: code,
+      };
+    } catch (err: unknown) {
+      if (
+        err instanceof AmulError &&
+        (err.status === 406 || err.code === "ms.msg.coupon_rejected")
+      ) {
+        return {
+          valid: false,
+          discount: 0,
+          message: err.message || "Coupon Code is not valid",
+          couponCode: code,
+        };
+      }
+      return {
+        valid: false,
+        discount: 0,
+        message: err instanceof Error ? err.message : String(err),
+        couponCode: code,
+      };
+    }
   }
 
   async listAddresses(): Promise<SavedAddress[]> {
@@ -714,7 +934,7 @@ export class AmulClient {
   }
 }
 
-function mapProduct(row: RawProduct): AmulProduct {
+export function mapProduct(row: RawProduct): AmulProduct {
   const available = Number(row.available ?? 0);
   const inventory = Number(row.inventory_quantity ?? 0);
   const lowStock = Number(row.inventory_low_stock_quantity ?? 0);
@@ -725,15 +945,93 @@ function mapProduct(row: RawProduct): AmulProduct {
     row.inventory_allow_out_of_stock !== false;
   const seller =
     typeof row.seller === "string" ? row.seller : (row.seller_id ?? row.seller?._id);
-  const price = Number(row.price ?? 0);
-  const proteinGrams = extractProteinGrams(row.name, row.alias);
+  const rawPrice = Number(row.price ?? 0);
+  const price = Number.isFinite(rawPrice) && rawPrice > 0 ? rawPrice : 0;
+
+  // Parse compare_price safely handling "" (empty string), string numbers, and numbers
+  let rawComparePrice: number | null = null;
+  if (typeof row.compare_price === "number" && Number.isFinite(row.compare_price) && row.compare_price > 0) {
+    rawComparePrice = row.compare_price;
+  } else if (typeof row.compare_price === "string" && row.compare_price.trim() !== "") {
+    const parsed = Number(row.compare_price.trim());
+    if (Number.isFinite(parsed) && parsed > 0) {
+      rawComparePrice = parsed;
+    }
+  }
+
+  // Parse original_price safely
+  let rawOriginalPrice: number | null = null;
+  if (typeof row.original_price === "number" && Number.isFinite(row.original_price) && row.original_price > 0) {
+    rawOriginalPrice = row.original_price;
+  } else if (typeof row.original_price === "string" && row.original_price.trim() !== "") {
+    const parsed = Number(row.original_price.trim());
+    if (Number.isFinite(parsed) && parsed > 0) {
+      rawOriginalPrice = parsed;
+    }
+  }
+
+  const rawDiscountsTotal = Number(row.discounts_total ?? 0);
+  const discountsTotal = Number.isFinite(rawDiscountsTotal) && rawDiscountsTotal > 0 ? rawDiscountsTotal : 0;
+
+  const rawCompareDiscount = Number(row.compare_price_discount ?? 0);
+  const comparePriceDiscount = Number.isFinite(rawCompareDiscount) && rawCompareDiscount > 0 ? rawCompareDiscount : 0;
+
+  let comparePrice: number | null = null;
+  let discountAmount: number | null = null;
+  let discountPct: number | null = null;
+
+  if (price > 0) {
+    if (rawComparePrice !== null && rawComparePrice > price) {
+      comparePrice = rawComparePrice;
+    } else if (rawOriginalPrice !== null && rawOriginalPrice > price) {
+      comparePrice = rawOriginalPrice;
+    } else if (discountsTotal > 0) {
+      comparePrice = price + discountsTotal;
+    } else if (comparePriceDiscount > 0) {
+      comparePrice = price + comparePriceDiscount;
+    }
+  }
+
+  if (comparePrice !== null && price > 0 && comparePrice > price) {
+    discountAmount = Number((comparePrice - price).toFixed(2));
+    discountPct = Math.round((discountAmount / comparePrice) * 100);
+  } else {
+    comparePrice = null;
+    discountAmount = null;
+    discountPct = null;
+  }
+
+  const nutrition = extractNutritionInfo(
+    row.name,
+    row.alias,
+    row.metafields,
+    row.description,
+  );
+  const proteinGrams = extractProteinGrams(
+    row.name,
+    row.alias,
+    row.metafields,
+    row.description,
+  );
   const costPerGramProtein = calculateProteinCostPerGram(price, proteinGrams);
+
+  const multiplier = extractPackMultiplier(row.name, row.alias);
+  const proteinPerServing =
+    nutrition.proteinPerServing ??
+    (proteinGrams && proteinGrams > 0
+      ? (multiplier > 1 ? Number((proteinGrams / multiplier).toFixed(1)) : proteinGrams)
+      : null);
+  const servingSizeText = nutrition.servingSizeText ?? formatProteinYield(row.name, row.alias, proteinGrams);
+
   return {
     id: row._id,
     sku: row.sku,
     name: row.name,
     alias: row.alias,
     price,
+    comparePrice,
+    discountAmount,
+    discountPct,
     available,
     inventoryQuantity: inventory,
     inventoryLowStock: lowStock,
@@ -743,6 +1041,8 @@ function mapProduct(row: RawProduct): AmulProduct {
     productUrl: productPageUrl(row.alias),
     proteinGrams,
     costPerGramProtein,
+    proteinPerServing,
+    servingSizeText,
   };
 }
 

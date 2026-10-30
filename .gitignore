@@ -52,3 +52,4 @@ Thumbs.db
 .project_id
 AGENTS.md
 .node_modules.lock
+.agents/

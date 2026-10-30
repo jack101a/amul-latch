@@ -3,6 +3,7 @@ import { z } from "zod";
 import {
   applyConfig,
   fetchCatalog,
+  fetchPromoBanners,
   getConfig,
   getSnapshot,
   pingDiscordAlert,
@@ -10,6 +11,7 @@ import {
   startWatch,
   stopWatch,
   tickOnce,
+  validateCoupon,
 } from "./runtime";
 import { DEFAULT_CONFIG, type AppConfig } from "./types";
 
@@ -57,15 +59,22 @@ export const resolvePincode = createServerFn({ method: "POST" })
     return fetchCatalog(data.pincode.trim());
   });
 
+export const getPromoBanners = createServerFn({ method: "POST" }).handler(async () => {
+  return fetchPromoBanners();
+});
+
+export const validateCouponCode = createServerFn({ method: "POST" })
+  .validator(z.object({ couponCode: z.string() }))
+  .handler(async ({ data }) => {
+    return validateCoupon(data.couponCode);
+  });
+
 export const startWatcher = createServerFn({ method: "POST" })
   .validator(z.object({ config: configSchema }))
   .handler(async ({ data }) => {
     const config = { ...DEFAULT_CONFIG, ...data.config } as AppConfig;
     if (!/^\d{6}$/.test(config.pincode)) {
       throw new Error("Enter a 6-digit Indian pincode");
-    }
-    if (!config.products.length) {
-      throw new Error("Select at least one protein SKU to watch");
     }
     return startWatch(config);
   });

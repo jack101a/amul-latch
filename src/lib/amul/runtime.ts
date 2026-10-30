@@ -1,12 +1,18 @@
-import { AmulClient } from "./client";
+import { AmulClient, type PromoBanner, type CouponValidationResult } from "./client";
 import { sendCallMeBot } from "./callmebot";
-import { sendDiscordWebhook, pingDiscord, type DiscordEmbed } from "./discord";
+import {
+  sendDiscordWebhook,
+  pingDiscord,
+  sendPriceDropAlert,
+  type DiscordEmbed,
+} from "./discord";
 import { renderProductCardPng } from "./card";
 import {
   DEFAULT_CONFIG,
   productImageUrl,
   productPageUrl,
   formatProteinYield,
+  calculateProteinCostPerGram,
   type ActivityEvent,
   type AmulProduct,
   type AppConfig,
@@ -19,6 +25,7 @@ import {
 } from "./types";
 
 type PreviousStock = Record<string, boolean>;
+type PreviousPrices = Record<string, number>;
 
 type RuntimeState = {
   watching: boolean;
@@ -34,6 +41,7 @@ type RuntimeState = {
   amulReachable: boolean;
   sessionReady: boolean;
   previousStock: PreviousStock;
+  previousPrices: PreviousPrices;
   primed: boolean;
   timer: ReturnType<typeof setTimeout> | null;
   inFlight: Promise<void> | null;
@@ -94,35 +102,66 @@ function resolveConfigFile(): string | null {
   return null;
 }
 
-function loadPersistedConfig(): Partial<AppConfig> {
+interface PersistedConfigData extends Partial<AppConfig> {
+  previousPrices?: Record<string, number>;
+}
+
+function loadPersistedConfig(): {
+  config: Partial<AppConfig>;
+  previousPrices: Record<string, number>;
+} {
   try {
     const file = resolveConfigFile();
     if (file) {
       const fs = require("node:fs");
       if (fs.existsSync(file)) {
-        const parsed = JSON.parse(fs.readFileSync(file, "utf-8")) as Partial<AppConfig> &
+        const parsed = JSON.parse(fs.readFileSync(file, "utf-8")) as PersistedConfigData &
           Record<string, unknown>;
         const {
           autoOrder: _autoOrder,
           orderIfAlreadyInStock: _orderIfAlreadyInStock,
           sessionCookie: _sessionCookie,
+          previousPrices,
           ...rest
         } = parsed;
-        return rest as Partial<AppConfig>;
+        const validPrices: Record<string, number> = {};
+        if (
+          previousPrices &&
+          typeof previousPrices === "object" &&
+          !Array.isArray(previousPrices)
+        ) {
+          for (const [k, v] of Object.entries(previousPrices)) {
+            if (typeof v === "number" && Number.isFinite(v)) {
+              validPrices[k] = v;
+            }
+          }
+        }
+        return {
+          config: rest as Partial<AppConfig>,
+          previousPrices: validPrices,
+        };
       }
     }
   } catch {
     /* ignore */
   }
-  return {};
+  return { config: {}, previousPrices: {} };
 }
 
-function savePersistedConfig(config: AppConfig) {
+function savePersistedConfig(
+  config: AppConfig,
+  previousPrices?: Record<string, number>,
+) {
   try {
     const file = resolveConfigFile();
     if (file) {
       const fs = require("node:fs");
-      fs.writeFileSync(file, JSON.stringify(config, null, 2), "utf-8");
+      const pricesToSave = previousPrices ?? g.__latchRuntime?.previousPrices ?? {};
+      const payload = {
+        ...config,
+        previousPrices: pricesToSave,
+      };
+      fs.writeFileSync(file, JSON.stringify(payload, null, 2), "utf-8");
     }
   } catch {
     /* ignore */
@@ -131,10 +170,11 @@ function savePersistedConfig(config: AppConfig) {
 
 function emptyState(): RuntimeState {
   const envConfig = loadEnvConfig();
-  const persisted = loadPersistedConfig();
+  const { config: persistedConfig, previousPrices: persistedPrices } =
+    loadPersistedConfig();
   const initialConfig: AppConfig = {
     ...DEFAULT_CONFIG,
-    ...persisted,
+    ...persistedConfig,
     ...envConfig,
   };
 
@@ -161,6 +201,7 @@ function emptyState(): RuntimeState {
     amulReachable: true,
     sessionReady: false,
     previousStock: {},
+    previousPrices: persistedPrices || {},
     primed: false,
     timer: null,
     inFlight: null,
@@ -200,19 +241,18 @@ export function applyConfig(partial: Partial<AppConfig>) {
   const s = state();
   const prevCount = s.config.products?.length || 0;
   s.config = { ...s.config, ...partial };
-  savePersistedConfig(s.config);
+  savePersistedConfig(s.config, s.previousPrices);
 
   const newCount = s.config.products?.length || 0;
-  // If we transitioned to 0 products while watching, enter dormant mode immediately
+  // If we transitioned to 0 products while watching, enter periodic catalog sweep mode
   if (s.watching && newCount === 0 && prevCount > 0) {
-    if (s.timer) {
-      clearTimeout(s.timer);
-      s.timer = null;
-    }
-    pushEvent("watch_dormant", "info", "Watcher dormant", "Watchlist emptied — entered 0-resource standby mode");
-    if (typeof (globalThis as unknown as { gc?: () => void }).gc === "function") {
-      try { (globalThis as unknown as { gc: () => void }).gc(); } catch { /* ignore */ }
-    }
+    pushEvent(
+      "watch_dormant",
+      "info",
+      "Catalog sweep mode",
+      "Watchlist emptied — periodic sweep active for general discounts",
+    );
+    schedule(120000);
   } else if (s.watching && newCount > 0 && !s.timer && !s.inFlight) {
     // Products added to watchlist: wake up watcher immediately
     pushEvent("watch_resumed", "ok", "Watcher active", `Monitoring ${newCount} SKU(s)`);
@@ -268,19 +308,14 @@ export async function startWatch(config: AppConfig) {
   s.nextPollMs = s.config.pollMinMs;
 
   if (!config.products.length) {
-    if (s.timer) {
-      clearTimeout(s.timer);
-      s.timer = null;
-    }
     pushEvent(
-      "watch_dormant",
-      "info",
-      "Watcher on standby",
-      "Watchlist is empty — 0 CPU/network idle mode active",
+      "watch_started",
+      "ok",
+      "Catalog sweep started",
+      `Monitoring general catalog discounts · ${config.pincode}`,
     );
-    if (typeof (globalThis as unknown as { gc?: () => void }).gc === "function") {
-      try { (globalThis as unknown as { gc: () => void }).gc(); } catch { /* ignore */ }
-    }
+    const stale = !s.lastTickAt || Date.now() - s.lastTickAt > s.nextPollMs;
+    schedule(same && !stale ? s.nextPollMs : 0);
     return getSnapshot();
   }
 
@@ -339,15 +374,10 @@ function schedule(ms: number) {
   const s = state();
   if (s.timer) clearTimeout(s.timer);
   if (!s.watching) return;
-  // If nothing is watched, go dormant! No polling timer needed.
-  if (!s.config.products || s.config.products.length === 0) {
-    s.timer = null;
-    return;
-  }
   s.timer = setTimeout(() => {
     s.timer = null;
     void runCycle(true).finally(() => {
-      if (s.watching && s.config.products && s.config.products.length > 0) {
+      if (s.watching) {
         schedule(jitter(s.nextPollMs));
       }
     });
@@ -357,7 +387,7 @@ function schedule(ms: number) {
 async function runCycle(force = false) {
   const s = state();
   if (s.inFlight) return s.inFlight;
-  if (!s.watching || !s.config.products || s.config.products.length === 0) {
+  if (!s.watching) {
     return;
   }
   if (
@@ -391,10 +421,6 @@ async function runCycle(force = false) {
 
 async function poll() {
   const s = state();
-  // Dormant check: if no products are being tracked, skip all network traffic & processing
-  if (!s.config.products || s.config.products.length === 0) {
-    return;
-  }
   if (!s.config.pincode) throw new Error("Set a pincode first");
   const client = await ensureClient(s.config.pincode);
   if (!s.substore || s.substore.pincode !== s.config.pincode || s.pollCount % 20 === 0) {
@@ -417,12 +443,8 @@ async function poll() {
     return;
   }
 
-  const tracked = s.config.products;
-  if (!tracked.length) {
-    pushEvent("poll", "info", `Polled ${products.length} protein SKUs`);
-    return;
-  }
-
+  const tracked = s.config.products || [];
+  const trackedSkus = new Set(tracked.map((t) => t.sku));
   const bySku = new Map(products.map((p) => [p.sku, p]));
   const restocks: AmulProduct[] = [];
   const already: AmulProduct[] = [];
@@ -441,15 +463,23 @@ async function poll() {
 
   if (!s.primed) {
     s.primed = true;
+    for (const p of products) {
+      if (p.price > 0 && s.previousPrices[p.sku] === undefined) {
+        s.previousPrices[p.sku] = p.price;
+      }
+    }
+    savePersistedConfig(s.config, s.previousPrices);
     const inCount = already.length;
     const outCount = tracked.length - inCount;
     pushEvent(
       "poll",
       "info",
       "Baseline captured",
-      `${inCount} in stock · ${outCount} waiting`,
+      tracked.length > 0
+        ? `${inCount} in stock · ${outCount} waiting`
+        : `Catalog sweep active · ${products.length} SKUs`,
     );
-    if (inCount) {
+    if (inCount && tracked.length > 0) {
       notify(
         `Latch baseline for ${s.config.pincode}: ${already.map((p) => p.name).join(", ")} in stock. Watching for the next restock.`,
       );
@@ -502,17 +532,110 @@ async function poll() {
         },
       );
     }
-    return;
+  }
+
+  let pricesChanged = false;
+
+  for (const live of products) {
+    const sku = live.sku;
+    const currentPrice = live.price;
+    if (!currentPrice || currentPrice <= 0) continue;
+
+    const prevPrice = s.previousPrices[sku];
+    const isWatched = trackedSkus.has(sku);
+    const comparePrice = live.comparePrice;
+
+    const hasPriceDrop =
+      typeof prevPrice === "number" && prevPrice > 0 && currentPrice < prevPrice;
+
+    const hasActiveDiscount =
+      typeof comparePrice === "number" && comparePrice > currentPrice;
+
+    if (hasPriceDrop) {
+      const savingsAmount = prevPrice - currentPrice;
+      const discountPct = Math.round((savingsAmount / prevPrice) * 100);
+      const costPerGram =
+        live.costPerGramProtein ?? calculateProteinCostPerGram(currentPrice, live.proteinGrams);
+
+      pushEvent(
+        "price_drop",
+        "ok",
+        `⚡ Price drop: ${live.name}`,
+        `₹${prevPrice.toLocaleString("en-IN")} ➔ ₹${currentPrice.toLocaleString("en-IN")} (-${discountPct}% / Save ₹${savingsAmount.toLocaleString("en-IN")})${costPerGram ? ` • ₹${costPerGram}/g` : ""}`,
+        sku,
+      );
+
+      if (s.config.discordEnabled && s.config.discordWebhookUrl) {
+        if (isWatched || discountPct >= 5) {
+          void sendPriceDropAlert({
+            webhookUrl: s.config.discordWebhookUrl,
+            product: live,
+            oldPrice: prevPrice,
+            newPrice: currentPrice,
+            discountPct,
+            savingsAmount,
+            pincode: s.config.pincode,
+            stockUnits: live.inventoryQuantity || live.available || (live.inStock ? 1 : 0),
+          });
+        }
+      }
+    } else if (hasActiveDiscount && (prevPrice === undefined || prevPrice > currentPrice)) {
+      const savingsAmount = comparePrice - currentPrice;
+      const discountPct = live.discountPct ?? Math.round((savingsAmount / comparePrice) * 100);
+      const costPerGram =
+        live.costPerGramProtein ?? calculateProteinCostPerGram(currentPrice, live.proteinGrams);
+
+      pushEvent(
+        "discount",
+        "ok",
+        `🏷️ Discount: ${live.name}`,
+        `MRP ₹${comparePrice.toLocaleString("en-IN")} ➔ ₹${currentPrice.toLocaleString("en-IN")} (-${discountPct}% off / Save ₹${savingsAmount.toLocaleString("en-IN")})${costPerGram ? ` • ₹${costPerGram}/g` : ""}`,
+        sku,
+      );
+
+      if (s.config.discordEnabled && s.config.discordWebhookUrl) {
+        if (isWatched || discountPct >= 5) {
+          void sendPriceDropAlert({
+            webhookUrl: s.config.discordWebhookUrl,
+            product: live,
+            oldPrice: comparePrice,
+            newPrice: currentPrice,
+            discountPct,
+            savingsAmount,
+            pincode: s.config.pincode,
+            stockUnits: live.inventoryQuantity || live.available || (live.inStock ? 1 : 0),
+          });
+        }
+      }
+    }
+
+    if (s.previousPrices[sku] !== currentPrice) {
+      s.previousPrices[sku] = currentPrice;
+      pricesChanged = true;
+    }
+  }
+
+  if (pricesChanged) {
+    savePersistedConfig(s.config, s.previousPrices);
   }
 
   if (s.pollCount % 8 === 0) {
-    const waiting = tracked.filter((t) => !bySku.get(t.sku)?.inStock);
-    pushEvent(
-      "poll",
-      "info",
-      `Still watching · ${waiting.length} out of stock`,
-      s.substore ? s.substore.name : s.config.pincode,
-    );
+    if (tracked.length > 0) {
+      const waiting = tracked.filter((t) => !bySku.get(t.sku)?.inStock);
+      pushEvent(
+        "poll",
+        "info",
+        `Still watching · ${waiting.length} out of stock`,
+        s.substore ? s.substore.name : s.config.pincode,
+      );
+    } else {
+      pushEvent(
+        "poll",
+        "info",
+        `Catalog sweep · ${products.length} protein SKUs checked`,
+        s.substore ? s.substore.name : s.config.pincode,
+      );
+    }
   }
 }
 
@@ -559,7 +682,17 @@ export function getISTDecimalHour(date = new Date()): number {
  *   - Standard Daytime (06:30-10:00 & 14:00-18:00 & 22:00-23:00 IST): baseline cadence (~8s-15s).
  */
 export function calculateAdaptiveInterval(s: RuntimeState, now = new Date()): number {
-  const tracked = s.config.products;
+  const tracked = s.config.products || [];
+  if (tracked.length === 0) {
+    const istHour = getISTDecimalHour(now);
+    // Night Dormancy (23:00 to 06:30 IST): 10 minutes sweep
+    if (istHour >= 23 || istHour < 6.5) {
+      return Math.min(s.config.pollMaxMs, 600000);
+    }
+    // Daytime sweep: every 2 minutes (120s)
+    return Math.min(s.config.pollMaxMs, 120000);
+  }
+
   const anyIn = tracked.some((t) => s.products.find((p) => p.sku === t.sku)?.inStock);
 
   if (anyIn) return s.config.pollMinMs;
@@ -608,8 +741,7 @@ function sameWatch(a: AppConfig, b: AppConfig): boolean {
 function derivePhase(s: RuntimeState): WatchPhase {
   if (!s.watching) return s.lastError ? "error" : "idle";
   if (s.lastError && !s.amulReachable) return "error";
-  if (!s.config.products || !s.config.products.length) return "idle";
-  if (s.config.products.some((t) => s.products.find((p) => p.sku === t.sku)?.inStock)) return "restock";
+  if (s.config.products?.some((t) => s.products.find((p) => p.sku === t.sku)?.inStock)) return "restock";
   return "watching";
 }
 
@@ -720,3 +852,19 @@ function notify(text: string, meta?: NotificationMeta) {
     }
   }
 }
+
+export async function fetchPromoBanners(): Promise<PromoBanner[]> {
+  const s = state();
+  const client = await ensureClient(s.config.pincode || "400068");
+  return client.listPromoBanners();
+}
+
+export async function validateCoupon(
+  couponCode: string,
+  cartId?: string,
+): Promise<CouponValidationResult> {
+  const s = state();
+  const client = await ensureClient(s.config.pincode || "400068");
+  return client.checkCoupon(couponCode, cartId);
+}
+

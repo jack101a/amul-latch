@@ -1,18 +1,29 @@
 import { useState, useMemo } from "react";
 import { formatDistanceToNow } from "date-fns";
-import { AlertCircle, AlertTriangle, Bell, CheckCircle2, Radio, Zap } from "lucide-react";
+import {
+  AlertCircle,
+  AlertTriangle,
+  Bell,
+  CheckCircle2,
+  Radio,
+  Tag,
+  TrendingDown,
+  Zap,
+} from "lucide-react";
 import type { ActivityEvent } from "@/lib/amul/types";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 
-type FilterType = "all" | "restock" | "order" | "poll";
+type FilterType = "all" | "deals" | "restock" | "order" | "poll";
 
 export function ActivityLog({ events }: { events: ActivityEvent[] }) {
   const [filter, setFilter] = useState<FilterType>("all");
 
   const filteredEvents = useMemo(() => {
     if (filter === "all") return events;
+    if (filter === "deals")
+      return events.filter((e) => e.kind === "price_drop" || e.kind === "discount");
     if (filter === "restock") return events.filter((e) => e.kind === "restock");
     if (filter === "order")
       return events.filter(
@@ -26,6 +37,10 @@ export function ActivityLog({ events }: { events: ActivityEvent[] }) {
     return events;
   }, [events, filter]);
 
+  const dealsCount = useMemo(
+    () => events.filter((e) => e.kind === "price_drop" || e.kind === "discount").length,
+    [events],
+  );
   const restockCount = useMemo(() => events.filter((e) => e.kind === "restock").length, [events]);
   const orderCount = useMemo(
     () =>
@@ -69,6 +84,23 @@ export function ActivityLog({ events }: { events: ActivityEvent[] }) {
             )}
           >
             All
+          </button>
+          <button
+            type="button"
+            onClick={() => setFilter("deals")}
+            className={cn(
+              "px-2.5 py-1 rounded text-[11px] font-medium transition-colors cursor-pointer flex items-center gap-1",
+              filter === "deals"
+                ? "bg-warn/25 text-warn font-semibold shadow-sm border border-warn/40"
+                : "text-muted-foreground hover:text-warn",
+            )}
+          >
+            Deals
+            {dealsCount > 0 ? (
+              <span className="px-1 py-0.2 rounded-full text-[9px] bg-warn/30 text-warn font-bold">
+                {dealsCount}
+              </span>
+            ) : null}
           </button>
           <button
             type="button"
@@ -134,6 +166,9 @@ export function ActivityLog({ events }: { events: ActivityEvent[] }) {
           <ol className="flex flex-col divide-y divide-border/40">
             {filteredEvents.map((event) => {
               const isRestock = event.kind === "restock";
+              const isPriceDrop = event.kind === "price_drop";
+              const isDiscount = event.kind === "discount";
+              const isDeal = isPriceDrop || isDiscount;
               const isPayment = event.kind === "payment_required";
               const isSuccess = event.kind === "order_success";
               const isError = event.level === "error";
@@ -144,6 +179,8 @@ export function ActivityLog({ events }: { events: ActivityEvent[] }) {
                   className={cn(
                     "flex items-start gap-3 px-4 py-2.5 transition-colors hover:bg-muted/30",
                     isRestock && "bg-stock/10 border-l-2 border-l-stock",
+                    isPriceDrop && "bg-warn/10 border-l-2 border-l-warn",
+                    isDiscount && "bg-warn/8 border-l-2 border-l-warn/70",
                     isPayment && "bg-warn/10 border-l-2 border-l-warn",
                     isSuccess && "bg-stock/15 border-l-2 border-l-stock font-medium",
                   )}
@@ -151,6 +188,10 @@ export function ActivityLog({ events }: { events: ActivityEvent[] }) {
                   <span className="mt-0.5 shrink-0">
                     {isRestock ? (
                       <Bell className="size-3.5 text-stock animate-bounce" />
+                    ) : isPriceDrop ? (
+                      <TrendingDown className="size-3.5 text-warn animate-pulse" />
+                    ) : isDiscount ? (
+                      <Tag className="size-3.5 text-warn" />
                     ) : isPayment ? (
                       <Zap className="size-3.5 text-warn animate-pulse" />
                     ) : isSuccess ? (
@@ -172,15 +213,40 @@ export function ActivityLog({ events }: { events: ActivityEvent[] }) {
                       </time>
                     </div>
                     {event.detail ? (
-                      <p className="mt-0.5 text-[11px] text-muted-foreground line-clamp-2 leading-relaxed">
-                        {event.detail}
-                      </p>
+                      isDeal && event.detail.includes("➔") ? (
+                        (() => {
+                          const [oldPart, newPart] = event.detail.split("➔");
+                          return (
+                            <p className="mt-0.5 text-[11px] font-mono leading-relaxed flex flex-wrap items-center gap-1.5">
+                              <span className="line-through text-muted-foreground/75 opacity-80">
+                                {oldPart.trim()}
+                              </span>
+                              <span className="text-subtle text-[10px]">➔</span>
+                              <span className="text-warn font-semibold">
+                                {newPart.trim()}
+                              </span>
+                            </p>
+                          );
+                        })()
+                      ) : (
+                        <p className="mt-0.5 text-[11px] text-muted-foreground line-clamp-2 leading-relaxed">
+                          {event.detail}
+                        </p>
+                      )
                     ) : null}
                   </div>
 
                   {isRestock ? (
                     <Badge variant="stock" className="shrink-0 text-[9px] px-1.5 py-0 leading-none">
                       RESTOCK
+                    </Badge>
+                  ) : isPriceDrop ? (
+                    <Badge variant="warn" className="shrink-0 text-[9px] px-1.5 py-0 leading-none font-mono font-semibold">
+                      PRICE DROP
+                    </Badge>
+                  ) : isDiscount ? (
+                    <Badge variant="warn" className="shrink-0 text-[9px] px-1.5 py-0 leading-none font-mono font-semibold">
+                      DISCOUNT
                     </Badge>
                   ) : null}
                 </li>

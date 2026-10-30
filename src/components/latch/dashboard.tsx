@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { formatDistanceToNow } from "date-fns";
 import {
+  AlertCircle,
   ArrowUpDown,
+  CheckCircle2,
   ChevronDown,
   ExternalLink,
   Filter,
@@ -13,6 +15,8 @@ import {
   ShieldCheck,
   Sparkles,
   Square,
+  Tag,
+  TrendingDown,
   Volume2,
   VolumeX,
   X,
@@ -23,6 +27,8 @@ import {
   getWatchStatus,
   getServerConfig,
   resolvePincode,
+  getPromoBanners,
+  validateCouponCode,
   startWatcher,
   stopWatcher,
   testDiscord,
@@ -30,6 +36,7 @@ import {
   tickWatcher,
   syncServerConfig,
 } from "@/lib/amul/actions";
+import type { PromoBanner } from "@/lib/amul/client";
 import {
   DEFAULT_CONFIG,
   type AmulProduct,
@@ -66,6 +73,77 @@ const WATCH_KEY = "latch-watching-v1";
 
 type SortMode = "default" | "value" | "price-asc" | "price-desc" | "name";
 
+export type FilterMode =
+  | "all"
+  | "discounted"
+  | "value"
+  | "instock"
+  | "watched"
+  | "out";
+
+export function isProductDiscounted(
+  product: AmulProduct,
+  previousPrices?: Record<string, number>,
+  priceDropSkus?: Set<string>,
+): boolean {
+  const currentPrice =
+    typeof product.price === "number" && Number.isFinite(product.price) && product.price > 0
+      ? product.price
+      : 0;
+
+  if (currentPrice <= 0) return false;
+
+  const rawCompare =
+    product.comparePrice ??
+    Reflect.get(product, "original_price") ??
+    Reflect.get(product, "compare_price");
+
+  const comparePrice =
+    typeof rawCompare === "number" && Number.isFinite(rawCompare) && rawCompare > 0
+      ? rawCompare
+      : null;
+
+  if (comparePrice !== null) {
+    if (comparePrice > currentPrice) {
+      const savings =
+        typeof product.discountAmount === "number" && product.discountAmount > 0
+          ? product.discountAmount
+          : Math.round(comparePrice - currentPrice);
+      const pct =
+        typeof product.discountPct === "number" && product.discountPct > 0
+          ? product.discountPct
+          : Math.round(((comparePrice - currentPrice) / comparePrice) * 100);
+      if (savings > 0 && pct > 0) return true;
+    }
+    // If comparePrice is explicitly <= currentPrice, it is NOT discounted regardless of stale discountPct
+    return false;
+  }
+
+  // If comparePrice is absent, check direct discount fields
+  if (
+    (typeof product.discountPct === "number" && product.discountPct > 0) ||
+    (typeof product.discountAmount === "number" && product.discountAmount > 0)
+  ) {
+    return true;
+  }
+
+  // Check valid previousPrices or price drop events
+  if (
+    previousPrices &&
+    typeof previousPrices[product.sku] === "number" &&
+    Number.isFinite(previousPrices[product.sku]) &&
+    previousPrices[product.sku] > currentPrice
+  ) {
+    return true;
+  }
+
+  if (priceDropSkus && priceDropSkus.has(product.sku)) {
+    return true;
+  }
+
+  return false;
+}
+
 export function LatchDashboard() {
   const [config, setConfig] = useState<AppConfig>(DEFAULT_CONFIG);
   const [hydrated, setHydrated] = useState(false);
@@ -76,8 +154,18 @@ export function LatchDashboard() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [activityDrawerOpen, setActivityDrawerOpen] = useState(false);
   const [inlineActivityOpen, setInlineActivityOpen] = useState(false);
+  const [dealsDrawerOpen, setDealsDrawerOpen] = useState(false);
+  const [banners, setBanners] = useState<PromoBanner[]>([]);
+  const [couponCodeInput, setCouponCodeInput] = useState("");
+  const [couponValidating, setCouponValidating] = useState(false);
+  const [couponResult, setCouponResult] = useState<{
+    valid: boolean;
+    discount?: number;
+    message?: string;
+    couponCode?: string;
+  } | null>(null);
   const [busy, setBusy] = useState<"pin" | "watch" | "whatsapp" | "discord" | null>(null);
-  const [filter, setFilter] = useState<"all" | "watched" | "value" | "instock" | "out">("all");
+  const [filter, setFilter] = useState<FilterMode>("all");
   const [sort, setSort] = useState<SortMode>("default");
   const [mobileTab, setMobileTab] = useState<"catalog" | "watched" | "activity">("catalog");
   const [now, setNow] = useState(() => Date.now());
@@ -188,6 +276,15 @@ export function LatchDashboard() {
         }
       })
       .catch(() => undefined);
+
+    void getPromoBanners()
+      .then((b) => {
+        if (!cancelled && Array.isArray(b)) {
+          setBanners(b);
+        }
+      })
+      .catch(() => undefined);
+
     return () => {
       cancelled = true;
     };
@@ -375,6 +472,18 @@ export function LatchDashboard() {
     }
   }, [snap, products, config.products, config.soundEnabled]);
 
+  const priceDropSkuSet = useMemo(() => {
+    const set = new Set<string>();
+    if (snap?.events) {
+      for (const ev of snap.events) {
+        if (ev.kind === "price_drop" && ev.sku) {
+          set.add(ev.sku);
+        }
+      }
+    }
+    return set;
+  }, [snap?.events]);
+
   const visible = useMemo(() => {
     let list = products.filter((p) => {
       if (mobileTab === "watched" || filter === "watched") {
@@ -382,6 +491,9 @@ export function LatchDashboard() {
       }
       if (filter === "out" && p.inStock) return false;
       if (filter === "instock" && !p.inStock) return false;
+      if (filter === "discounted" && !isProductDiscounted(p, snap?.previousPrices, priceDropSkuSet)) {
+        return false;
+      }
       if (query.trim()) {
         const q = query.trim().toLowerCase();
         return p.name.toLowerCase().includes(q) || p.sku.toLowerCase().includes(q);
@@ -390,6 +502,16 @@ export function LatchDashboard() {
     });
 
     return list.slice().sort((a, b) => {
+      if (filter === "discounted" && sort === "default") {
+        if (a.inStock !== b.inStock) return a.inStock ? -1 : 1;
+        const aDisc = a.discountPct ?? 0;
+        const bDisc = b.discountPct ?? 0;
+        if (aDisc !== bDisc) return bDisc - aDisc;
+        const aSave = a.discountAmount ?? 0;
+        const bSave = b.discountAmount ?? 0;
+        if (aSave !== bSave) return bSave - aSave;
+        return a.name.localeCompare(b.name);
+      }
       if (sort === "value" || filter === "value") {
         if (a.inStock !== b.inStock) return a.inStock ? -1 : 1;
         const aCost = a.costPerGramProtein ?? Infinity;
@@ -412,7 +534,7 @@ export function LatchDashboard() {
       if (a.inStock !== b.inStock) return a.inStock ? -1 : 1;
       return a.name.localeCompare(b.name);
     });
-  }, [products, filter, sort, mobileTab, query, trackedMap]);
+  }, [products, filter, sort, mobileTab, query, trackedMap, snap?.previousPrices, priceDropSkuSet]);
 
   const watching = Boolean(snap?.watching);
   const nextInSec =
@@ -536,11 +658,41 @@ export function LatchDashboard() {
     }
   }
 
+  async function runValidateCoupon(code: string) {
+    const clean = code.trim().toUpperCase();
+    if (!clean) return;
+    setCouponValidating(true);
+    setCouponResult(null);
+    try {
+      const res = await validateCouponCode({ data: { couponCode: clean } });
+      setCouponResult({ ...res, couponCode: clean });
+      if (res.valid) {
+        toast.success(`Coupon ${clean} is valid! Save ₹${res.discount ?? 0}`);
+      } else {
+        toast.error(res.message || "Invalid coupon code");
+      }
+    } catch (err: any) {
+      setCouponResult({
+        valid: false,
+        message: err?.message || "Failed to validate coupon code with Amul cart",
+        couponCode: clean,
+      });
+      toast.error("Coupon validation request failed");
+    } finally {
+      setCouponValidating(false);
+    }
+  }
+
   const inStockTotal = products.filter((p) => p.inStock).length;
   const inStockWatched = config.products.filter(
     (t) => products.find((p) => p.sku === t.sku)?.inStock,
   ).length;
   const outCount = products.filter((p) => !p.inStock).length;
+  const discountedTotal = useMemo(() => {
+    return products.filter((p) =>
+      isProductDiscounted(p, snap?.previousPrices, priceDropSkuSet),
+    ).length;
+  }, [products, snap?.previousPrices, priceDropSkuSet]);
 
   return (
     <div className="min-h-dvh flex flex-col bg-background text-foreground pb-20 sm:pb-12">
@@ -625,6 +777,24 @@ export function LatchDashboard() {
                 </span>
               ) : null}
             </Button>
+
+            {/* Deals & Coupons Drawer Button */}
+            {banners.length > 0 ? (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setDealsDrawerOpen(true)}
+                className="hidden sm:flex items-center gap-1.5 h-9 border-warn/40 bg-warn/10 hover:bg-warn/20 font-mono text-xs text-warn shrink-0 cursor-pointer"
+                title="Open Deals & Coupon Studio"
+              >
+                <Tag className="size-3.5 text-warn" />
+                <span>Deals</span>
+                <span className="rounded bg-warn/30 px-1.5 py-0.2 text-[10px] font-bold text-warn">
+                  {banners.length}
+                </span>
+              </Button>
+            ) : null}
 
             {/* Settings Dialog Trigger */}
             <Button
@@ -843,32 +1013,81 @@ export function LatchDashboard() {
           </div>
         </section>
 
+        {/* Promotional Campaign Ribbon */}
+        {banners.length > 0 ? (
+          <div className="rounded-xl bg-gradient-to-r from-warn/10 via-card to-card border border-warn/30 p-3 sm:p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-[var(--shadow-border)]">
+            <div className="flex items-center gap-3">
+              <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-warn/15 text-warn border border-warn/30">
+                <Tag className="size-4" />
+              </span>
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <span className="font-mono text-[10px] uppercase font-bold tracking-wider text-warn">
+                    Active Campaign
+                  </span>
+                  <span className="text-[11px] font-mono text-muted-foreground">
+                    Amul StoreHippo · {banners.length} {banners.length === 1 ? "offer" : "offers"}
+                  </span>
+                </div>
+                <p className="text-xs sm:text-sm font-medium text-foreground truncate mt-0.5">
+                  {banners[0]?.name || "Special High-Protein Deals"}
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                onClick={() => setDealsDrawerOpen(true)}
+                className="h-8 px-3 text-xs font-mono font-medium bg-warn/20 text-warn hover:bg-warn/30 border border-warn/40 cursor-pointer"
+              >
+                <Sparkles className="size-3 mr-1 text-warn" />
+                Test Coupons & View Banners
+              </Button>
+            </div>
+          </div>
+        ) : null}
+
         {/* 3. Toolbar: Search, Filters & Sorters */}
         <section className="flex flex-col gap-3">
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
-            {/* Filter Pills */}
-            <div className="flex flex-wrap items-center gap-1.5">
+            {/* Filter Pills with Horizontal Scroll on Mobile (<640px) */}
+            <div className="flex items-center gap-1.5 overflow-x-auto pb-1.5 md:pb-0 md:flex-wrap shrink-0 -mx-4 px-4 sm:mx-0 sm:px-0 scrollbar-none [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
               {[
-                { id: "all", label: `All (${products.length})` },
-                { id: "value", label: "Best Value (₹/g)" },
-                { id: "instock", label: `In Stock (${inStockTotal})` },
-                { id: "watched", label: `Watched (${config.products.length})` },
-                { id: "out", label: `Out of Stock (${outCount})` },
-              ].map(({ id, label }) => (
-                <button
-                  key={id}
-                  type="button"
-                  onClick={() => setFilter(id as typeof filter)}
-                  className={cn(
-                    "px-3 py-1.5 rounded-lg text-xs font-mono font-medium transition-all cursor-pointer border",
-                    filter === id
-                      ? "bg-primary text-primary-foreground border-primary font-semibold shadow-xs"
-                      : "bg-card border-border/70 text-muted-foreground hover:text-foreground hover:bg-muted/60",
-                  )}
-                >
-                  {label}
-                </button>
-              ))}
+                { id: "all" as const, label: `All (${products.length})` },
+                {
+                  id: "discounted" as const,
+                  label: `Discounted (${discountedTotal})`,
+                  isDiscount: true,
+                },
+                { id: "value" as const, label: "Best Value (₹/g)" },
+                { id: "instock" as const, label: `In Stock (${inStockTotal})` },
+                { id: "watched" as const, label: `Watched (${config.products.length})` },
+                { id: "out" as const, label: `Out of Stock (${outCount})` },
+              ].map(({ id, label, isDiscount }) => {
+                const isActive = filter === id;
+                return (
+                  <button
+                    key={id}
+                    type="button"
+                    onClick={() => setFilter(id)}
+                    className={cn(
+                      "px-3 py-1.5 rounded-lg text-xs font-mono font-medium transition-all cursor-pointer border shrink-0 inline-flex items-center gap-1.5",
+                      isActive
+                        ? isDiscount
+                          ? "bg-warn text-primary-foreground border-warn font-bold shadow-[0_0_12px_rgba(196,165,116,0.25)]"
+                          : "bg-primary text-primary-foreground border-primary font-semibold shadow-xs"
+                        : isDiscount && discountedTotal > 0
+                          ? "border-warn/50 bg-warn/10 text-warn hover:bg-warn/20 hover:border-warn/70 font-semibold"
+                          : "bg-card border-border/70 text-muted-foreground hover:text-foreground hover:bg-muted/60",
+                    )}
+                  >
+                    {isDiscount ? <Tag className="size-3" /> : null}
+                    <span>{label}</span>
+                  </button>
+                );
+              })}
             </div>
 
             {/* Right: Search + Sort selector */}
@@ -1069,6 +1288,177 @@ export function LatchDashboard() {
               <p className="text-[11px] font-mono text-muted-foreground">
                 Press <kbd className="px-1 border rounded bg-card">Esc</kbd> to close · Updates stream automatically
               </p>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {/* 7b. Slide-Over Deals & Coupon Testing Studio */}
+      {dealsDrawerOpen ? (
+        <div className="fixed inset-0 z-50 flex justify-end">
+          <div
+            className="fixed inset-0 bg-background/80 backdrop-blur-xs transition-opacity"
+            onClick={() => setDealsDrawerOpen(false)}
+          />
+
+          <div className="relative w-full max-w-md bg-card border-l border-border h-full flex flex-col shadow-2xl z-10 latch-enter">
+            <div className="flex items-center justify-between p-4 border-b border-border bg-muted/30">
+              <div className="flex items-center gap-2">
+                <Tag className="size-4 text-warn" />
+                <h2 className="font-mono text-sm font-semibold uppercase tracking-wider text-foreground">
+                  Promotions & Coupon Testing
+                </h2>
+              </div>
+              <button
+                type="button"
+                onClick={() => setDealsDrawerOpen(false)}
+                className="size-8 flex items-center justify-center rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+                aria-label="Close deals studio"
+              >
+                <X className="size-4" />
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-5">
+              {/* Cart Coupon Validator */}
+              <section className="flex flex-col gap-2.5 rounded-lg bg-muted/30 border border-border/70 p-3.5">
+                <div className="flex items-center justify-between">
+                  <span className="font-mono text-[11px] uppercase tracking-wider text-foreground font-semibold flex items-center gap-1.5">
+                    <Sparkles className="size-3.5 text-warn" />
+                    Live Cart Coupon Validator
+                  </span>
+                  <span className="text-[10px] font-mono text-muted-foreground">StoreHippo API</span>
+                </div>
+                <p className="text-xs text-muted-foreground leading-relaxed">
+                  Test promo codes directly against the Amul StoreHippo cart engine without placing an order.
+                </p>
+
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    void runValidateCoupon(couponCodeInput);
+                  }}
+                  className="flex items-center gap-2 mt-1"
+                >
+                  <Input
+                    value={couponCodeInput}
+                    onChange={(e) => setCouponCodeInput(e.target.value.toUpperCase())}
+                    placeholder="e.g. PROTEIN10"
+                    className="h-9 font-mono uppercase text-xs bg-card border-border/70"
+                  />
+                  <Button
+                    type="submit"
+                    variant="secondary"
+                    disabled={couponValidating || !couponCodeInput.trim()}
+                    className="h-9 px-3 font-mono text-xs bg-warn/20 text-warn hover:bg-warn/30 border border-warn/40 cursor-pointer"
+                  >
+                    {couponValidating ? <LoaderCircle className="size-3.5 animate-spin mr-1" /> : null}
+                    Validate
+                  </Button>
+                </form>
+
+                {/* Quick preset chips */}
+                <div className="flex items-center gap-1.5 pt-1">
+                  <span className="text-[10px] font-mono text-muted-foreground">Try:</span>
+                  {["PROTEIN10", "AMULWHEY", "PRO10"].map((code) => (
+                    <button
+                      key={code}
+                      type="button"
+                      onClick={() => {
+                        setCouponCodeInput(code);
+                        void runValidateCoupon(code);
+                      }}
+                      className="px-2 py-0.5 rounded text-[10px] font-mono bg-muted/60 hover:bg-muted text-muted-foreground hover:text-foreground border border-border/60 cursor-pointer"
+                    >
+                      {code}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Validation Result Box */}
+                {couponResult ? (
+                  <div
+                    className={cn(
+                      "rounded-md p-3 text-xs font-mono border mt-2 flex items-start gap-2.5",
+                      couponResult.valid
+                        ? "bg-stock/15 border-stock/40 text-stock"
+                        : "bg-destructive/10 border-destructive/30 text-destructive",
+                    )}
+                  >
+                    {couponResult.valid ? (
+                      <CheckCircle2 className="size-4 shrink-0 mt-0.5" />
+                    ) : (
+                      <AlertCircle className="size-4 shrink-0 mt-0.5" />
+                    )}
+                    <div className="flex-1 min-w-0">
+                      <p className="font-semibold">
+                        {couponResult.valid
+                          ? `Valid Coupon Code (${couponResult.couponCode})`
+                          : "Coupon Inactive or Not Applicable"}
+                      </p>
+                      {couponResult.discount ? (
+                        <p className="mt-0.5 text-[11px] text-foreground font-bold">
+                          Discount Amount: ₹{couponResult.discount}
+                        </p>
+                      ) : null}
+                      {couponResult.message ? (
+                        <p className="mt-0.5 text-[11px] opacity-90">{couponResult.message}</p>
+                      ) : null}
+                    </div>
+                  </div>
+                ) : null}
+              </section>
+
+              {/* Active Promotional Banners */}
+              <section className="flex flex-col gap-3">
+                <div className="flex items-center justify-between">
+                  <span className="font-mono text-xs uppercase tracking-wider text-muted-foreground font-semibold">
+                    Active Campaigns ({banners.length})
+                  </span>
+                  <span className="text-[10px] font-mono text-muted-foreground">ms.banners</span>
+                </div>
+
+                {!banners.length ? (
+                  <div className="rounded-lg border border-border/60 bg-muted/20 p-6 text-center text-xs text-muted-foreground">
+                    No active promotional banners detected for this region.
+                  </div>
+                ) : (
+                  <div className="flex flex-col gap-3">
+                    {banners.map((b) => (
+                      <div
+                        key={b.id}
+                        className="rounded-lg bg-card border border-border/70 overflow-hidden flex flex-col group shadow-xs"
+                      >
+                        {b.imageUrl ? (
+                          <div className="aspect-[16/6] bg-muted/40 relative overflow-hidden">
+                            <img
+                              src={b.imageUrl}
+                              alt={b.name}
+                              className="size-full object-cover transition-transform duration-300 group-hover:scale-102"
+                              referrerPolicy="no-referrer"
+                            />
+                          </div>
+                        ) : null}
+                        <div className="p-3 flex items-center justify-between gap-2">
+                          <div className="min-w-0">
+                            <p className="text-xs font-semibold text-foreground truncate">{b.name}</p>
+                            <p className="text-[10px] font-mono text-muted-foreground truncate">{b.alias}</p>
+                          </div>
+                          <a
+                            href={`https://shop.amul.com/en/browse/${b.alias}`}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="px-2.5 py-1 rounded bg-muted/60 hover:bg-muted border border-border/70 text-[11px] font-mono text-foreground flex items-center gap-1 transition-colors shrink-0"
+                          >
+                            <span>Amul Shop</span>
+                            <ExternalLink className="size-3" />
+                          </a>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </section>
             </div>
           </div>
         </div>

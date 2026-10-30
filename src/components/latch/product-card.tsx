@@ -14,9 +14,52 @@ type Props = {
 export function ProductCard({ product, tracked, onToggle, onQuantity }: Props) {
   const selected = Boolean(tracked);
   const isBestValue =
-    typeof product.costPerGramProtein === "number" && product.costPerGramProtein <= 2.2;
+    typeof product.costPerGramProtein === "number" &&
+    Number.isFinite(product.costPerGramProtein) &&
+    product.costPerGramProtein > 0 &&
+    product.costPerGramProtein <= 2.2;
 
   const shopUrl = productPageUrl(product.alias);
+
+  // 1. Resolve raw compare price supporting standard AmulProduct fields and raw StoreHippo fallbacks
+  const rawComparePrice =
+    product.comparePrice ??
+    (product as any).original_price ??
+    (product as any).compare_price;
+
+  const comparePrice =
+    typeof rawComparePrice === "number" && Number.isFinite(rawComparePrice) && rawComparePrice > 0
+      ? rawComparePrice
+      : null;
+
+  const currentPrice =
+    typeof product.price === "number" && Number.isFinite(product.price) && product.price > 0
+      ? product.price
+      : 0;
+
+  // 2. Strict discount validity condition
+  const hasDiscount = Boolean(
+    comparePrice !== null &&
+    currentPrice > 0 &&
+    comparePrice > currentPrice
+  );
+
+  // 3. Compute savings amount with fallback to arithmetic difference
+  const savingsAmount = hasDiscount && comparePrice !== null
+    ? (typeof product.discountAmount === "number" && product.discountAmount > 0
+        ? product.discountAmount
+        : Math.round(comparePrice - currentPrice))
+    : 0;
+
+  // 4. Compute discount percentage with fallback to arithmetic percentage
+  const discountPct = hasDiscount && comparePrice !== null && comparePrice > 0
+    ? (typeof product.discountPct === "number" && product.discountPct > 0
+        ? product.discountPct
+        : Math.round(((comparePrice - currentPrice) / comparePrice) * 100))
+    : 0;
+
+  // 5. Final guard against zero-savings or fractional rounding edge cases
+  const showDiscount = hasDiscount && savingsAmount > 0 && discountPct > 0;
 
   return (
     <article
@@ -75,6 +118,15 @@ export function ProductCard({ product, tracked, onToggle, onQuantity }: Props) {
             </span>
           ) : null}
         </div>
+
+        {/* Floating Discount Pill Badge (Bottom-Left of Image) */}
+        {showDiscount ? (
+          <div className="absolute bottom-2.5 left-2.5 z-10">
+            <span className="inline-flex items-center gap-1 rounded-full bg-warn/95 text-primary-foreground font-mono text-[10px] sm:text-[11px] font-bold px-2 py-0.5 shadow-md backdrop-blur-md">
+              {discountPct}% OFF
+            </span>
+          </div>
+        ) : null}
       </div>
 
       {/* Card Body */}
@@ -103,31 +155,64 @@ export function ProductCard({ product, tracked, onToggle, onQuantity }: Props) {
         </div>
 
         {/* Pricing & Telemetry Block */}
-        <div className="rounded-lg bg-muted/40 border border-border/50 p-2.5 flex items-center justify-between gap-2">
-          <div>
-            <div className="flex items-baseline gap-1">
+        <div className="rounded-lg bg-muted/40 border border-border/50 p-2.5 flex items-center justify-between gap-2 min-h-[58px]">
+          <div className="flex flex-col min-w-0">
+            {/* Price Line: Current Price + Strikethrough Original Price / MRP */}
+            <div className="flex items-baseline gap-1.5 flex-wrap">
               <span className="text-xl sm:text-2xl font-bold tracking-tight text-foreground tabular-nums">
-                ₹{product.price}
+                ₹{currentPrice.toLocaleString("en-IN")}
               </span>
-              <span className="text-[10px] text-muted-foreground uppercase font-mono">MRP</span>
+
+              {showDiscount && comparePrice !== null ? (
+                <span className="text-xs sm:text-[13px] font-mono text-muted-foreground/80 line-through tabular-nums decoration-muted-foreground/60">
+                  ₹{comparePrice.toLocaleString("en-IN")}
+                </span>
+              ) : (
+                <span className="text-[10px] text-muted-foreground uppercase font-mono">
+                  MRP
+                </span>
+              )}
             </div>
+
+            {/* Savings Line: Rupee Savings Badge + Discount % */}
+            {showDiscount ? (
+              <div className="flex items-center gap-1.5 mt-0.5">
+                <span className="inline-flex items-center rounded px-1.5 py-0.2 text-[10px] font-mono font-semibold bg-warn/15 text-warn border border-warn/30 tabular-nums">
+                  Save ₹{savingsAmount.toLocaleString("en-IN")}
+                </span>
+                <span className="text-[10px] font-mono text-warn/80 font-medium tabular-nums hidden sm:inline">
+                  ({discountPct}% off)
+                </span>
+              </div>
+            ) : null}
           </div>
 
-          {typeof product.costPerGramProtein === "number" ? (
+          {/* Protein Cost & Best Value Telemetry Badge */}
+          {typeof product.costPerGramProtein === "number" &&
+          Number.isFinite(product.costPerGramProtein) &&
+          product.costPerGramProtein > 0 ? (
             <div
               className={cn(
-                "flex flex-col items-end rounded px-2 py-1 border text-right",
+                "flex shrink-0 flex-col items-end rounded px-2 py-1 border text-right transition-colors",
                 isBestValue
-                  ? "bg-stock/15 border-stock/40 text-stock"
+                  ? "bg-stock/15 border-stock/40 text-stock shadow-[0_0_12px_rgba(111,143,106,0.1)]"
                   : "bg-card border-border/70 text-foreground/80",
               )}
             >
-              <span className="font-mono text-xs font-semibold tabular-nums leading-none">
+              <span className="font-mono text-xs font-semibold tabular-nums leading-none flex items-center gap-1">
+                {isBestValue ? (
+                  <span className="size-1.5 rounded-full bg-stock animate-pulse inline-block" />
+                ) : null}
                 ₹{Number(product.costPerGramProtein).toFixed(2)}
                 <span className="text-[10px] font-normal text-muted-foreground">/g</span>
               </span>
-              <span className="text-[9px] uppercase tracking-wider text-muted-foreground font-mono mt-0.5">
-                Protein Cost
+              <span
+                className={cn(
+                  "text-[9px] uppercase tracking-wider font-mono mt-0.5",
+                  isBestValue ? "text-stock/90 font-medium" : "text-muted-foreground",
+                )}
+              >
+                {isBestValue ? "Best Value" : "Protein Cost"}
               </span>
             </div>
           ) : null}
