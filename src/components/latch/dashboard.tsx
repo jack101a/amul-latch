@@ -167,7 +167,17 @@ export function LatchDashboard() {
       .then((s) => {
         if (!cancelled) {
           setSnap(s);
-          if (s.products.length) setCatalog(s.products);
+          if (s.products.length) {
+            setCatalog(s.products);
+          } else if (config.pincode) {
+            void resolvePincode({ data: { pincode: config.pincode } })
+              .then((res) => {
+                if (!cancelled && res?.products?.length) {
+                  setCatalog(res.products);
+                }
+              })
+              .catch(() => undefined);
+          }
           if (s.config?.discordWebhookUrl && !config.discordWebhookUrl) {
             setConfig((prev) => ({
               ...prev,
@@ -181,7 +191,7 @@ export function LatchDashboard() {
     return () => {
       cancelled = true;
     };
-  }, [hydrated, config.discordWebhookUrl]);
+  }, [hydrated, config.discordWebhookUrl, config.pincode]);
 
   useEffect(() => {
     if (!hydrated) return;

@@ -9,6 +9,7 @@ import {
   type TrackedProduct,
   type AmulProduct,
 } from "./types.ts";
+import { AmulClient } from "./client.ts";
 import { getISTDecimalHour, calculateAdaptiveInterval, getConfig, applyConfig } from "./runtime.ts";
 
 test("Protein Economics: extraction of pack multiplier", () => {
@@ -152,4 +153,26 @@ test("Config Ingestion: getConfig returns application configuration", () => {
   const cfg = getConfig();
   assert.equal(cfg.discordWebhookUrl, "https://discord.com/api/webhooks/test/123");
   assert.equal(cfg.discordEnabled, true);
+});
+
+test("Session Resilience: AmulClient auto-expires stale sessions", () => {
+  const client = new AmulClient();
+  
+  // Uninitialized client has no session
+  assert.equal(client.hasSession(), false);
+
+  // Demo session is always considered valid
+  client.isDemoSession = true;
+  assert.equal(client.hasSession(), true);
+  client.isDemoSession = false;
+
+  // Stale session (created 3 hours ago) should be treated as expired
+  client.importCookies("jsessionid=test_cookie_123");
+  client["tid"] = "sample_tid";
+  client["sessionCreatedAt"] = Date.now() - 3 * 60 * 60 * 1000;
+  assert.equal(client.hasSession(), false, "Session older than 2 hours must expire");
+
+  // Fresh session (created 5 minutes ago) should be valid
+  client["sessionCreatedAt"] = Date.now() - 5 * 60 * 1000;
+  assert.equal(client.hasSession(), true, "Fresh session within 2 hours must be valid");
 });

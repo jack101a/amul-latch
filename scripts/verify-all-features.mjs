@@ -46,7 +46,7 @@ async function verifyFeatures() {
     // 2. Navigation
     console.log("🌐 Navigating to page...");
     await page.goto(`${BASE_URL}/`, { waitUntil: "networkidle" });
-    await page.waitForTimeout(1000);
+    await page.waitForTimeout(2500);
 
     // 3. Header & Branding
     const title = await page.title();

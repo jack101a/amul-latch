@@ -89,6 +89,7 @@ export class AmulClient {
   private jar = new Map<string, string>();
   private tid = "";
   private importedCookie = "";
+  private sessionCreatedAt = 0;
   substore: SubstoreInfo | null = null;
   imported = false;
   loggedIn = false;
@@ -104,7 +105,13 @@ export class AmulClient {
   }
 
   hasSession(): boolean {
-    return this.jar.has("jsessionid") && (Boolean(this.tid) || this.isDemoSession);
+    if (this.isDemoSession) return true;
+    if (!this.jar.has("jsessionid") || !this.tid) return false;
+    // Auto-expire sessions older than 2 hours to avoid stale StoreHippo session issues
+    if (this.sessionCreatedAt && Date.now() - this.sessionCreatedAt > 2 * 60 * 60 * 1000) {
+      return false;
+    }
+    return true;
   }
 
   importCookies(cookieHeader: string) {
@@ -260,10 +267,46 @@ export class AmulClient {
     // StoreHippo serves different inventory when nested query brackets are percent-encoded
     const queryString = parts.join("&").replace(/%5B/g, "[").replace(/%5D/g, "]");
 
-    const json = await this.requestJson<ProductsResponse>(
+    let json = await this.requestJson<ProductsResponse>(
       `${AMUL_ORIGIN}/api/1/entity/ms.products?${queryString}`,
     );
-    const rows = json.data ?? [];
+    let rows = json.data ?? [];
+
+    // StoreHippo returns HTTP 200 with data: [] when the session TID has expired or become invalid.
+    // Amul protein category always has SKUs (even when OOS). If rows is empty and session is auto-managed, re-bootstrap and retry once.
+    if (rows.length === 0 && !this.imported && !this.isDemoSession) {
+      this.tid = "";
+      this.jar.clear();
+      this.sessionCreatedAt = 0;
+      await this.bootstrapCookies();
+      await this.refreshTid();
+      if (this.substore?.pincode) {
+        await this.setPincode(this.substore.pincode);
+      }
+      const retrySubstoreParam =
+        this.substore?.id || lookupSubstore(this.substore?.slug || "")?.id || this.substore?.slug || substoreParam;
+      const retryParts = PRODUCT_FIELDS.map((f) => `fields[${f}]=1`);
+      retryParts.push(
+        "filters[0][field]=categories",
+        "filters[0][value][0]=protein",
+        "filters[0][operator]=in",
+        "filters[0][original]=1",
+        "facets=true",
+        "facetgroup=default_category_facet",
+        "limit=80",
+        "total=1",
+        "start=0",
+        "v=6",
+        "device_type=other",
+        `substore=${encodeURIComponent(retrySubstoreParam)}`,
+      );
+      const retryQuery = retryParts.join("&").replace(/%5B/g, "[").replace(/%5D/g, "]");
+      const retryJson = await this.requestJson<ProductsResponse>(
+        `${AMUL_ORIGIN}/api/1/entity/ms.products?${retryQuery}`,
+      );
+      rows = retryJson.data ?? [];
+    }
+
     return rows.map(mapProduct);
   }
 
@@ -557,7 +600,10 @@ export class AmulClient {
     }
     const raw = await this.requestText(`${AMUL_ORIGIN}/user/info.js?_v=${Date.now()}`);
     const info = parseSessionScript(raw);
-    if (info.tid) this.tid = info.tid;
+    if (info.tid) {
+      this.tid = info.tid;
+      this.sessionCreatedAt = Date.now();
+    }
     const user = (info.user ?? {}) as Record<string, any>;
     const infoData = (info.data ?? {}) as Record<string, any>;
     const resolvedId = String(user._id ?? infoData.user_id ?? this.userId ?? "");

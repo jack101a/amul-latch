@@ -225,6 +225,11 @@ export async function fetchCatalog(pincode: string): Promise<{
   products: AmulProduct[];
 }> {
   const s = state();
+  // If previous catalog was empty or invalid, clear client to guarantee a fresh session
+  if (!s.products.length) {
+    s.client = null;
+    s.sessionReady = false;
+  }
   const client = await ensureClient(pincode);
   const substore =
     (client.substore && client.substore.pincode === pincode ? client.substore : null) ??
@@ -236,6 +241,9 @@ export async function fetchCatalog(pincode: string): Promise<{
   s.amulReachable = true;
   s.lastError = null;
   if (!products.length) {
+    // Clear client so subsequent attempts do not reuse dead session
+    s.client = null;
+    s.sessionReady = false;
     pushEvent(
       "error",
       "warn",
@@ -401,8 +409,10 @@ async function poll() {
       "poll",
       "warn",
       "Empty catalog from Amul",
-      "The shop answered but listed no protein SKUs. Backing off.",
+      "The shop answered but listed no protein SKUs. Resetting session and backing off.",
     );
+    s.client = null;
+    s.sessionReady = false;
     s.nextPollMs = Math.min(s.config.pollMaxMs, Math.max(s.nextPollMs * 1.5, 15000));
     return;
   }
